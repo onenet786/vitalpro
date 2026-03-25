@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'launch_gate.dart';
+import 'report_models.dart';
 import 'reporting_home_page.dart';
 
 Future<void> main() async {
@@ -18,14 +19,18 @@ class VitalProApp extends StatefulWidget {
 }
 
 class _VitalProAppState extends State<VitalProApp> {
-  bool _isUnlocked = false;
+  AuthSession? _session;
 
-  void _unlockSession() {
-    if (!_isUnlocked) {
-      setState(() {
-        _isUnlocked = true;
-      });
-    }
+  void _setSession(AuthSession session) {
+    setState(() {
+      _session = session;
+    });
+  }
+
+  void _clearSession() {
+    setState(() {
+      _session = null;
+    });
   }
 
   @override
@@ -43,9 +48,12 @@ class _VitalProAppState extends State<VitalProApp> {
         scaffoldBackgroundColor: const Color(0xFFF3F6FA),
         useMaterial3: true,
       ),
-      home: _isUnlocked
-          ? const ReportingHomePage()
-          : LaunchGatePage(onUnlock: _unlockSession),
+      home: _session == null
+          ? LaunchGatePage(onLogin: _setSession)
+          : ReportingHomePage(
+              session: _session!,
+              onLogout: _clearSession,
+            ),
     );
   }
 }

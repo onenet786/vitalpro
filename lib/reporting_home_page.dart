@@ -10,11 +10,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'report_models.dart';
+import 'vitalpro_logo.dart';
 
 enum _AppSection { reporting, admin }
 
 class ReportingHomePage extends StatefulWidget {
-  const ReportingHomePage({super.key});
+  const ReportingHomePage({
+    super.key,
+    required this.session,
+    required this.onLogout,
+  });
+
+  final AuthSession session;
+  final VoidCallback onLogout;
 
   @override
   State<ReportingHomePage> createState() => _ReportingHomePageState();
@@ -40,10 +48,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   bool _showChart = false;
   bool _isLoading = true;
   bool _isBusy = false;
-  bool _isAdminUnlocked = false;
   bool _isSqlPasswordVisible = false;
   bool _showQueryChartByDefault = false;
-  String? _adminPassword;
   String? _statusMessage;
   String? _healthMessage;
   int? _selectedServerId;
@@ -57,7 +63,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   String get _apiBaseUrl => dotenv.env['API_BASE_URL'] ?? '';
 
-  ApiClient get _apiClient => ApiClient(baseUrl: _apiBaseUrl);
+  bool get _isAdminUser => widget.session.user.isAdmin;
+
+  ApiClient get _apiClient => ApiClient(
+    baseUrl: _apiBaseUrl,
+    authToken: widget.session.token,
+  );
 
   ReportingServer? get _selectedServer {
     for (final server in _servers) {
@@ -106,8 +117,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     try {
       final healthMessage = await _apiClient.fetchHealthMessage();
-      final bootstrap = _isAdminUnlocked && _adminPassword != null
-          ? await _apiClient.fetchAdminBootstrap(_adminPassword!)
+      final bootstrap = _currentSection == _AppSection.admin && _isAdminUser
+          ? await _apiClient.fetchAdminBootstrap()
           : await _apiClient.fetchReportingBootstrap();
       final preferences = await SharedPreferences.getInstance();
       final storedDefaultServerId = preferences.getInt(
@@ -133,7 +144,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _selectedQueryId = nextQueryId;
         _showChart = selectedQuery?.showChartByDefault ?? false;
         _statusMessage = bootstrap.servers.isEmpty || bootstrap.queries.isEmpty
-            ? 'Add at least one SQL server and one saved query from Admin before running reports.'
+            ? (_isAdminUser
+                  ? 'Add at least one SQL server and one saved query from Admin before running reports.'
+                  : 'Ask an admin to add at least one SQL server and one saved query before running reports.')
             : 'Configuration loaded from MySQL.';
         _isLoading = false;
       });
@@ -264,123 +277,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       return;
     }
 
-    if (_isAdminUnlocked) {
-      setState(() {
-        _currentSection = _AppSection.admin;
-      });
-      return;
-    }
-
-    final password = await _promptForPassword();
-    if (password == null || password.isEmpty) {
+    if (!_isAdminUser) {
+      _showSnack('Your account does not have admin access.');
       return;
     }
 
     setState(() {
-      _isBusy = true;
-      _statusMessage = 'Verifying admin password...';
+      _currentSection = _AppSection.admin;
     });
 
-    try {
-      final result = await _apiClient.verifyAdminPassword(password);
-      if (!mounted) {
-        return;
-      }
-
-      if (!result.success) {
-        setState(() {
-          _isBusy = false;
-          _statusMessage = result.message;
-        });
-        _showSnack(result.message);
-        return;
-      }
-
-      setState(() {
-        _adminPassword = password;
-        _isAdminUnlocked = true;
-        _currentSection = _AppSection.admin;
-        _isBusy = false;
-        _statusMessage = result.message;
-      });
-
-      _resetServerForm();
-      _resetQueryForm();
-      await _loadBootstrap();
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isBusy = false;
-        _statusMessage = 'Admin verification failed. Details: $error';
-      });
-    }
-  }
-
-  Future<String?> _promptForPassword() async {
-    final controller = TextEditingController();
-    bool isVisible = false;
-
-    final password = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Admin Access'),
-              content: TextField(
-                controller: controller,
-                obscureText: !isVisible,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: 'Admin password',
-                  hintText: 'OneNet25Mar2026',
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      setDialogState(() {
-                        isVisible = !isVisible;
-                      });
-                    },
-                    icon: Icon(
-                      isVisible
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                    ),
-                  ),
-                ),
-                onSubmitted: (_) {
-                  Navigator.of(dialogContext).pop(controller.text.trim());
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () =>
-                      Navigator.of(dialogContext).pop(controller.text.trim()),
-                  child: const Text('Verify'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    controller.dispose();
-    return password;
+    _resetServerForm();
+    _resetQueryForm();
+    await _loadBootstrap();
   }
 
   Future<void> _saveCompanyProfile() async {
-    final adminPassword = _adminPassword;
-    if (adminPassword == null) {
-      return;
-    }
-
     setState(() {
       _isBusy = true;
       _statusMessage = 'Saving company profile...';
@@ -393,7 +304,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           companyAddress: _companyAddressController.text.trim(),
           companyLogoUrl: _companyLogoController.text.trim(),
         ),
-        adminPassword,
       );
       if (!mounted) {
         return;
@@ -412,11 +322,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Future<void> _saveServer() async {
-    final adminPassword = _adminPassword;
-    if (adminPassword == null) {
-      return;
-    }
-
     if (_serverNameController.text.trim().isEmpty ||
         _serverHostController.text.trim().isEmpty ||
         _serverDatabaseController.text.trim().isEmpty) {
@@ -450,7 +355,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           username: _serverUsernameController.text.trim(),
           password: _serverPasswordController.text,
         ),
-        adminPassword,
       );
       if (!mounted) {
         return;
@@ -470,8 +374,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Future<void> _deleteServer(ReportingServer server) async {
-    final adminPassword = _adminPassword;
-    if (adminPassword == null || server.id == null) {
+    if (server.id == null) {
       return;
     }
 
@@ -505,7 +408,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     });
 
     try {
-      final result = await _apiClient.deleteServer(server.id!, adminPassword);
+      final result = await _apiClient.deleteServer(server.id!);
       if (!mounted) {
         return;
       }
@@ -526,11 +429,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Future<void> _saveQuery() async {
-    final adminPassword = _adminPassword;
-    if (adminPassword == null) {
-      return;
-    }
-
     if (_queryNameController.text.trim().isEmpty ||
         _queryTextController.text.trim().isEmpty) {
       _showSnack('Query name and SQL query text are required.');
@@ -552,7 +450,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           queryText: _queryTextController.text.trim(),
           showChartByDefault: _showQueryChartByDefault,
         ),
-        adminPassword,
       );
       if (!mounted) {
         return;
@@ -572,8 +469,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Future<void> _deleteQuery(SavedQuery query) async {
-    final adminPassword = _adminPassword;
-    if (adminPassword == null || query.id == null) {
+    if (query.id == null) {
       return;
     }
 
@@ -607,7 +503,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     });
 
     try {
-      final result = await _apiClient.deleteQuery(query.id!, adminPassword);
+      final result = await _apiClient.deleteQuery(query.id!);
       if (!mounted) {
         return;
       }
@@ -678,15 +574,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       return;
     }
 
-    final clearSession = message.toLowerCase().contains('admin password');
     setState(() {
       _isBusy = false;
       _statusMessage = message;
-      if (clearSession) {
-        _isAdminUnlocked = false;
-        _adminPassword = null;
-        _currentSection = _AppSection.reporting;
-      }
     });
     _showSnack(message);
   }
@@ -695,6 +585,20 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  Future<void> _signOut() async {
+    try {
+      await _apiClient.logout();
+    } catch (_) {
+      // Clear local session even if the server-side token is already gone.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    widget.onLogout();
   }
 
   Future<void> _printReport() async {
@@ -826,16 +730,30 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     final title = _currentSection == _AppSection.reporting
         ? 'VitalPro Reporting'
         : 'Admin Panel';
+    final showAdminTab = _isAdminUser;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
         centerTitle: false,
         actions: [
+          Tooltip(
+            message:
+                'Signed in as ${widget.session.user.username} (${widget.session.user.role.name})',
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Icon(Icons.account_circle_outlined),
+            ),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _isLoading || _isBusy ? null : _loadBootstrap,
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: _isBusy ? null : _signOut,
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
@@ -847,7 +765,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             : _buildAdminSection(),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentSection == _AppSection.reporting ? 0 : 1,
+        selectedIndex: showAdminTab && _currentSection == _AppSection.admin
+            ? 1
+            : 0,
         onDestinationSelected: _handleSectionChange,
         destinations: [
           const NavigationDestination(
@@ -855,13 +775,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             selectedIcon: Icon(Icons.analytics),
             label: 'Reports',
           ),
-          NavigationDestination(
-            icon: Icon(
-              _isAdminUnlocked ? Icons.admin_panel_settings : Icons.lock_outline,
+          if (showAdminTab)
+            const NavigationDestination(
+              icon: Icon(Icons.admin_panel_settings_outlined),
+              selectedIcon: Icon(Icons.admin_panel_settings),
+              label: 'Admin',
             ),
-            selectedIcon: const Icon(Icons.admin_panel_settings),
-            label: 'Admin',
-          ),
         ],
       ),
     );
@@ -933,10 +852,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         color: Color(0xFF355468),
                       ),
                     )
-                  : const Icon(
-                      Icons.business_outlined,
-                      size: 34,
-                      color: Color(0xFF355468),
+                  : const Center(
+                      child: VitalProLogo(
+                        size: 48,
+                        showWordmark: false,
+                      ),
                     ),
             ),
             const SizedBox(width: 18),
@@ -1270,14 +1190,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Admin Workspace',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF0A2540),
-              ),
+            const VitalProLogo(
+              size: 74,
+              subtitle: 'Admin Workspace',
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             Text(
               'Save client branding, maintain multiple MSSQL servers, and store reusable report queries in MySQL.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(

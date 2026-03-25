@@ -3,9 +3,9 @@
     "short_name": "VitalPro",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F3F6FA",
+    "theme_color": "#0B5D7A",
+    "description": "VitalPro Reporting with secure analytics, reusable queries, and PDF exports.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

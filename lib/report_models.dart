@@ -1,5 +1,56 @@
 enum AuthenticationMode { windows, sqlServer }
 
+enum UserRole { admin, reporting }
+
+UserRole _parseUserRole(dynamic value) {
+  return '${value ?? ''}'.toLowerCase() == 'admin'
+      ? UserRole.admin
+      : UserRole.reporting;
+}
+
+class AppUser {
+  const AppUser({
+    required this.id,
+    required this.username,
+    required this.role,
+  });
+
+  final int id;
+  final String username;
+  final UserRole role;
+
+  bool get isAdmin => role == UserRole.admin;
+
+  factory AppUser.fromJson(Map<String, dynamic> json) {
+    return AppUser(
+      id: json['id'] is int
+          ? json['id'] as int
+          : int.tryParse('${json['id'] ?? ''}') ?? 0,
+      username: (json['username'] ?? '').toString(),
+      role: _parseUserRole(json['role']),
+    );
+  }
+}
+
+class AuthSession {
+  const AuthSession({
+    required this.token,
+    required this.user,
+  });
+
+  final String token;
+  final AppUser user;
+
+  factory AuthSession.fromJson(Map<String, dynamic> json) {
+    return AuthSession(
+      token: (json['token'] ?? '').toString(),
+      user: AppUser.fromJson(
+        Map<String, dynamic>.from(json['user'] as Map? ?? const {}),
+      ),
+    );
+  }
+}
+
 class CompanyProfile {
   const CompanyProfile({
     this.companyName = '',

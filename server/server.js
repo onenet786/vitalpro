@@ -1,4 +1,5 @@
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
@@ -14,8 +15,11 @@ const MYSQL_PORT = parseInt(process.env.MYSQL_PORT || '3306', 10);
 const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
 const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'vitalpro_reporting';
+const DEFAULT_ADMIN_USERNAME = process.env.DEFAULT_ADMIN_USERNAME || 'admin';
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin786';
 
 let pool;
+const authSessions = new Map();
 
 function loadEnv() {
   const envPath = path.resolve(__dirname, '..', '.env');
@@ -108,10 +112,26 @@ async function initializeStorage() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id INT NOT NULL AUTO_INCREMENT,
+      username VARCHAR(100) NOT NULL,
+      password_hash TEXT NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'reporting',
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_app_users_username (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
     INSERT INTO app_settings (id, company_name, company_address, company_logo_url)
     VALUES (1, '', '', '')
     ON DUPLICATE KEY UPDATE id = id;
   `);
+
+  await ensureDefaultAdminUser();
 }
 
 function sendJson(res, statusCode, payload) {
@@ -119,7 +139,7 @@ function sendJson(res, statusCode, payload) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   });
   res.end(JSON.stringify(payload));
 }
@@ -158,35 +178,131 @@ function createHttpError(statusCode, message) {
   return error;
 }
 
-function buildExpectedAdminPassword() {
-  const now = new Date();
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
-  const day = `${now.getDate()}`.padStart(2, '0');
-  const month = months[now.getMonth()];
-  const year = `${now.getFullYear()}`;
-  return `OneNet${day}${month}${year}`;
+function normalizeRole(role) {
+  return String(role || '').toLowerCase() === 'admin' ? 'admin' : 'reporting';
 }
 
-function assertAdminPassword(password) {
-  if (String(password || '').trim() !== buildExpectedAdminPassword()) {
-    throw createHttpError(
-      401,
-      'Invalid admin password for today. Expected format is OneNetDDMMMyyyy.',
-    );
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(String(password || ''), salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(`${salt}:${derivedKey.toString('hex')}`);
+    });
+  });
+}
+
+async function verifyPassword(password, storedHash) {
+  const [salt, expectedHash] = String(storedHash || '').split(':');
+  if (!salt || !expectedHash) {
+    return false;
+  }
+
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(String(password || ''), salt, 64, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      const expectedBuffer = Buffer.from(expectedHash, 'hex');
+      resolve(
+        expectedBuffer.length === derivedKey.length &&
+          crypto.timingSafeEqual(expectedBuffer, derivedKey),
+      );
+    });
+  });
+}
+
+async function ensureDefaultAdminUser() {
+  const [rows] = await pool.query(
+    `SELECT id
+     FROM app_users
+     WHERE username = ?
+     LIMIT 1`,
+    [String(DEFAULT_ADMIN_USERNAME || '').trim().toLowerCase()],
+  );
+
+  if (rows.length > 0) {
+    return;
+  }
+
+  await pool.query(
+    `INSERT INTO app_users (username, password_hash, role, is_active)
+     VALUES (?, ?, 'admin', 1)`,
+    [
+      String(DEFAULT_ADMIN_USERNAME || '').trim().toLowerCase(),
+      await hashPassword(DEFAULT_ADMIN_PASSWORD),
+    ],
+  );
+}
+
+async function authenticateUser(username, password) {
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+  if (!normalizedUsername || !String(password || '')) {
+    throw createHttpError(400, 'Username and password are required.');
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, username, password_hash, role, is_active
+     FROM app_users
+     WHERE username = ?
+     LIMIT 1`,
+    [normalizedUsername],
+  );
+
+  const user = rows[0];
+  if (!user || !user.is_active) {
+    throw createHttpError(401, 'Invalid username or password.');
+  }
+
+  const isValidPassword = await verifyPassword(password, user.password_hash);
+  if (!isValidPassword) {
+    throw createHttpError(401, 'Invalid username or password.');
+  }
+
+  return {
+    id: user.id,
+    username: user.username,
+    role: normalizeRole(user.role),
+  };
+}
+
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  authSessions.set(token, {
+    id: user.id,
+    username: user.username,
+    role: normalizeRole(user.role),
+  });
+  return token;
+}
+
+function readBearerToken(req) {
+  const authorization = req.headers.authorization || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+function requireAuth(req) {
+  const token = readBearerToken(req);
+  if (!token) {
+    throw createHttpError(401, 'Authentication required.');
+  }
+
+  const session = authSessions.get(token);
+  if (!session) {
+    throw createHttpError(401, 'Your session is no longer valid. Please sign in again.');
+  }
+
+  return { token, user: session };
+}
+
+function requireAdmin(user) {
+  if (normalizeRole(user.role) !== 'admin') {
+    throw createHttpError(403, 'Admin access is required for this action.');
   }
 }
 
@@ -701,31 +817,47 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'GET' && pathname === '/api/reporting/bootstrap') {
-      sendJson(res, 200, await loadReportingBootstrap());
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/api/admin/verify') {
+    if (req.method === 'POST' && pathname === '/api/auth/login') {
       const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
+      const user = await authenticateUser(payload.username, payload.password);
+      const token = createSession(user);
+
       sendJson(res, 200, {
         success: true,
-        message: 'Admin access granted for today.',
+        message: 'Login successful.',
+        token,
+        user,
       });
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/api/auth/logout') {
+      const { token } = requireAuth(req);
+      authSessions.delete(token);
+      sendJson(res, 200, {
+        success: true,
+        message: 'Signed out successfully.',
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/reporting/bootstrap') {
+      requireAuth(req);
+      sendJson(res, 200, await loadReportingBootstrap());
+      return;
+    }
+
     if (req.method === 'POST' && pathname === '/api/admin/bootstrap') {
-      const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       sendJson(res, 200, await loadAdminBootstrap());
       return;
     }
 
     if (req.method === 'POST' && pathname === '/api/admin/settings') {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
       await saveCompanyProfile(payload);
       sendJson(res, 200, {
         success: true,
@@ -735,8 +867,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/admin/servers') {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
       const missing = validateServerPayload(payload);
 
       if (missing.length > 0) {
@@ -755,8 +888,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'DELETE' && pathname.startsWith('/api/admin/servers/')) {
-      const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       const id = parseInt(pathname.split('/').pop(), 10);
 
       if (!Number.isFinite(id)) {
@@ -772,8 +905,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/admin/queries') {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
       const missing = validateQueryPayload(payload);
 
       if (missing.length > 0) {
@@ -799,8 +933,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'DELETE' && pathname.startsWith('/api/admin/queries/')) {
-      const payload = await readJsonBody(req);
-      assertAdminPassword(payload.adminPassword);
+      const { user } = requireAuth(req);
+      requireAdmin(user);
       const id = parseInt(pathname.split('/').pop(), 10);
 
       if (!Number.isFinite(id)) {
@@ -816,6 +950,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/reporting/run') {
+      requireAuth(req);
       const payload = await readJsonBody(req);
       const serverId = parseInt(payload.serverId, 10);
       const queryId = parseInt(payload.queryId, 10);

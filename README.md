@@ -4,8 +4,7 @@ VitalPro is now a Flutter reporting app backed by a small Node API. The API stor
 
 ## What It Does
 
-- Protects app launch with the daily password format `OneNetDDMMMyyyy`
-- Protects the Admin panel with the same daily password format
+- Uses database-backed login with role-based access
 - Saves client company name, address, and logo URL in MySQL
 - Saves multiple MSSQL servers in MySQL
 - Lets the user select one server at a time and store a local default server
@@ -50,6 +49,8 @@ MYSQL_PORT=3306
 MYSQL_USER=root
 MYSQL_PASSWORD=your_mysql_password
 MYSQL_DATABASE=vitalpro_reporting
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_PASSWORD=Admin786
 ```
 
 - Use `http://10.0.2.2:3000` for the Android emulator
@@ -57,7 +58,9 @@ MYSQL_DATABASE=vitalpro_reporting
 
 ## Important Notes
 
-- Admin password and launch password both use `OneNetDDMMMyyyy`
+- The API creates an `app_users` table automatically on startup
+- The default seeded admin login is `admin` / `Admin786`
+- Admin routes require an authenticated user with the `admin` role
 - Saved report queries are restricted to read-only `SELECT` or `WITH ... SELECT` statements
 - SQL login servers are executed through the `mssql` driver
 - Windows authentication servers are executed through `sqlcmd`, so `sqlcmd` must be installed and available in `PATH`
@@ -66,9 +69,10 @@ MYSQL_DATABASE=vitalpro_reporting
 ## API Routes
 
 - `GET /health`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `GET /api/reporting/bootstrap`
 - `POST /api/reporting/run`
-- `POST /api/admin/verify`
 - `POST /api/admin/bootstrap`
 - `POST /api/admin/settings`
 - `POST /api/admin/servers`

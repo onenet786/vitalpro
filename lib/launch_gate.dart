@@ -1,36 +1,78 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+import 'api_client.dart';
+import 'report_models.dart';
+import 'vitalpro_logo.dart';
 
 class LaunchGatePage extends StatefulWidget {
-  const LaunchGatePage({super.key, required this.onUnlock});
+  const LaunchGatePage({super.key, required this.onLogin});
 
-  final VoidCallback onUnlock;
+  final ValueChanged<AuthSession> onLogin;
 
   @override
   State<LaunchGatePage> createState() => _LaunchGatePageState();
 }
 
 class _LaunchGatePageState extends State<LaunchGatePage> {
+  final _usernameController = TextEditingController(text: 'admin');
   final _passwordController = TextEditingController();
   String? _errorMessage;
-  bool _isLaunchPasswordVisible = false;
+  bool _isBusy = false;
+  bool _isPasswordVisible = false;
 
-  String get _expectedPassword => buildExpectedPassword();
+  String get _apiBaseUrl => dotenv.env['API_BASE_URL'] ?? '';
+  ApiClient get _apiClient => ApiClient(baseUrl: _apiBaseUrl);
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _unlock() {
-    if (_passwordController.text.trim() != _expectedPassword) {
+  Future<void> _login() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+    if (username.isEmpty || password.isEmpty) {
       setState(() {
-        _errorMessage = 'Invalid launch password for today.';
+        _errorMessage = 'Username and password are required.';
       });
       return;
     }
 
-    widget.onUnlock();
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final session = await _apiClient.login(
+        username: username,
+        password: password,
+      );
+      if (!mounted) {
+        return;
+      }
+      widget.onLogin(session);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isBusy = false;
+        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+      });
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBusy = false;
+    });
   }
 
   @override
@@ -53,8 +95,15 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Center(
+                        child: VitalProLogo(
+                          size: 88,
+                          subtitle: 'Secure Analytics',
+                        ),
+                      ),
+                      const SizedBox(height: 28),
                       Text(
-                        'Launch Security',
+                        'Sign In',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(
                               fontWeight: FontWeight.w700,
@@ -63,32 +112,47 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Enter today\'s password in the format `OneNetDDMMMyyyy` to open the reporting app.',
+                        'Sign in with a database user account to open the reporting workspace. The default admin login is `admin` / `Admin786`.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF4F6478),
                         ),
                       ),
                       const SizedBox(height: 24),
                       TextField(
-                        controller: _passwordController,
-                        obscureText: !_isLaunchPasswordVisible,
-                        onSubmitted: (_) => _unlock(),
+                        controller: _usernameController,
+                        textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
-                          labelText: 'Launch password',
-                          hintText: 'OneNet25Mar2026',
+                          labelText: 'Username',
+                          hintText: 'admin',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: !_isPasswordVisible,
+                        onSubmitted: (_) => _login(),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          hintText: 'Admin786',
                           errorText: _errorMessage,
                           suffixIcon: IconButton(
-                            tooltip: _isLaunchPasswordVisible
+                            tooltip: _isPasswordVisible
                                 ? 'Hide password'
                                 : 'Show password',
-                            onPressed: () {
+                            onPressed: _isBusy
+                                ? null
+                                : () {
                               setState(() {
-                                _isLaunchPasswordVisible =
-                                    !_isLaunchPasswordVisible;
+                                _isPasswordVisible = !_isPasswordVisible;
                               });
                             },
                             icon: Icon(
-                              _isLaunchPasswordVisible
+                              _isPasswordVisible
                                   ? Icons.visibility_off_outlined
                                   : Icons.visibility_outlined,
                             ),
@@ -104,8 +168,14 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed: _unlock,
-                          child: const Text('Unlock'),
+                          onPressed: _isBusy ? null : _login,
+                          child: _isBusy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Sign In'),
                         ),
                       ),
                     ],
@@ -118,27 +188,4 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
       ),
     );
   }
-}
-
-String buildExpectedPassword() {
-  final now = DateTime.now();
-  const months = <String>[
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
-  final day = now.day.toString().padLeft(2, '0');
-  final month = months[now.month - 1];
-  final year = now.year.toString();
-  return 'OneNet$day$month$year';
 }

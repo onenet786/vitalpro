@@ -5,9 +5,26 @@ import 'package:http/http.dart' as http;
 import 'report_models.dart';
 
 class ApiClient {
-  ApiClient({required this.baseUrl});
+  ApiClient({required this.baseUrl, this.authToken});
 
   final String baseUrl;
+  final String? authToken;
+
+  Future<AuthSession> login({
+    required String username,
+    required String password,
+  }) async {
+    final body = await _postJson('/api/auth/login', {
+      'username': username,
+      'password': password,
+    });
+    return AuthSession.fromJson(body);
+  }
+
+  Future<MessageResult> logout() async {
+    final body = await _postJson('/api/auth/logout', const {});
+    return MessageResult.fromJson(body);
+  }
 
   Future<String> fetchHealthMessage() async {
     final body = await _get('/health');
@@ -19,64 +36,39 @@ class ApiClient {
     return ReportingBootstrap.fromJson(body);
   }
 
-  Future<ReportingBootstrap> fetchAdminBootstrap(String adminPassword) async {
-    final body = await _postJson('/api/admin/bootstrap', {
-      'adminPassword': adminPassword,
-    });
+  Future<ReportingBootstrap> fetchAdminBootstrap() async {
+    final body = await _postJson('/api/admin/bootstrap', const {});
     return ReportingBootstrap.fromJson(body);
   }
 
-  Future<MessageResult> verifyAdminPassword(String adminPassword) async {
-    final body = await _postJson('/api/admin/verify', {
-      'adminPassword': adminPassword,
-    });
-    return MessageResult.fromJson(body);
-  }
-
-  Future<MessageResult> saveCompanyProfile(
-    CompanyProfile profile,
-    String adminPassword,
-  ) async {
+  Future<MessageResult> saveCompanyProfile(CompanyProfile profile) async {
     final body = await _postJson('/api/admin/settings', {
       ...profile.toJson(),
-      'adminPassword': adminPassword,
     });
     return MessageResult.fromJson(body);
   }
 
-  Future<MessageResult> saveServer(
-    ReportingServer server,
-    String adminPassword,
-  ) async {
+  Future<MessageResult> saveServer(ReportingServer server) async {
     final body = await _postJson('/api/admin/servers', {
       ...server.toJson(),
-      'adminPassword': adminPassword,
     });
     return MessageResult.fromJson(body);
   }
 
-  Future<MessageResult> deleteServer(int id, String adminPassword) async {
-    final body = await _deleteJson('/api/admin/servers/$id', {
-      'adminPassword': adminPassword,
-    });
+  Future<MessageResult> deleteServer(int id) async {
+    final body = await _deleteJson('/api/admin/servers/$id', const {});
     return MessageResult.fromJson(body);
   }
 
-  Future<MessageResult> saveQuery(
-    SavedQuery query,
-    String adminPassword,
-  ) async {
+  Future<MessageResult> saveQuery(SavedQuery query) async {
     final body = await _postJson('/api/admin/queries', {
       ...query.toJson(),
-      'adminPassword': adminPassword,
     });
     return MessageResult.fromJson(body);
   }
 
-  Future<MessageResult> deleteQuery(int id, String adminPassword) async {
-    final body = await _deleteJson('/api/admin/queries/$id', {
-      'adminPassword': adminPassword,
-    });
+  Future<MessageResult> deleteQuery(int id) async {
+    final body = await _deleteJson('/api/admin/queries/$id', const {});
     return MessageResult.fromJson(body);
   }
 
@@ -97,7 +89,7 @@ class ApiClient {
       throw Exception('API connection is not configured.');
     }
 
-    final response = await http.get(uri);
+    final response = await http.get(uri, headers: _buildHeaders());
     return _decodeResponse(response);
   }
 
@@ -112,7 +104,7 @@ class ApiClient {
 
     final response = await http.post(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: _buildHeaders(includeJsonContentType: true),
       body: jsonEncode(payload),
     );
     return _decodeResponse(response);
@@ -129,10 +121,22 @@ class ApiClient {
 
     final response = await http.delete(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: _buildHeaders(includeJsonContentType: true),
       body: jsonEncode(payload),
     );
     return _decodeResponse(response);
+  }
+
+  Map<String, String> _buildHeaders({bool includeJsonContentType = false}) {
+    final headers = <String, String>{};
+    if (includeJsonContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+    final token = authToken?.trim() ?? '';
+    if (token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
   }
 
   Uri? _buildUri(String path) {
