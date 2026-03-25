@@ -1,6 +1,6 @@
 {
-    "name": "database_utlities",
-    "short_name": "database_utlities",
+    "name": "VitalPro",
+    "short_name": "VitalPro",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

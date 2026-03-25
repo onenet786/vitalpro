@@ -1,52 +1,48 @@
-# Database Utilities
+# VitalPro Reporting
 
-A Flutter app for managing multiple Microsoft SQL Server database profiles from mobile or desktop through a small Windows API.
+VitalPro is now a Flutter reporting app backed by a small Node API. The API stores client branding, saved MSSQL servers, and saved report queries in MySQL, then runs selected read-only queries against one SQL Server at a time.
 
-## How It Works
+## What It Does
 
-- The Flutter app runs on mobile, desktop, or web
-- A Node API runs on the Windows machine that has SQL Server access
-- The API stores saved server settings in MySQL
-- The API executes `sqlcmd` for attach and detach requests
-- The app opens behind a launch password in the format `OneNetDDMMMyyyy`
-- Your phone calls the API over your local network
+- Protects app launch with the daily password format `OneNetDDMMMyyyy`
+- Protects the Admin panel with the same daily password format
+- Saves client company name, address, and logo URL in MySQL
+- Saves multiple MSSQL servers in MySQL
+- Lets the user select one server at a time and store a local default server
+- Saves reusable report queries in MySQL and shows them by `queryName`
+- Runs read-only queries and shows table results
+- Shows a chart preview when enabled and the result contains numeric data
+- Prints or exports the report as PDF
 
-## Current Features
-
-- Add and manage multiple SQL Server database profiles
-- Store server name, database name, MDF path, optional LDF path, and auth mode
-- Save and load server settings from MySQL
-- Support both Windows Authentication and SQL Server login
-- Send attach and detach requests through the API
-- Show the last API result and SQL command preview
-- Lock app launch with today’s password
-
-## API Setup
+## Backend Setup
 
 1. Copy `.env.example` to `.env`
-2. Update the values in `.env`
-3. Make sure MySQL is running and the configured user can create databases/tables
-4. Make sure `sqlcmd` is installed on the Windows machine and available in `PATH`
-5. Install backend dependencies:
+2. Update the MySQL and API host values
+3. Install backend packages:
 
 ```bash
 cd server
 npm install
 ```
 
-6. Start the API:
+4. Start the API:
 
 ```bash
 cd server
 node server.js
 ```
 
-7. The API will listen using the `HOST` and `PORT` values from `.env`
+## Flutter Setup
 
-## .env Settings
+```bash
+flutter pub get
+flutter run
+```
+
+## Environment Settings
 
 ```env
-API_BASE_URL=http://10.0.2.2:3000
+API_BASE_URL=http://127.0.0.1:3000
 HOST=0.0.0.0
 PORT=3000
 MYSQL_HOST=127.0.0.1
@@ -56,29 +52,26 @@ MYSQL_PASSWORD=your_mysql_password
 MYSQL_DATABASE=database_utilities
 ```
 
-- Use `API_BASE_URL=http://10.0.2.2:3000` for the Android emulator
-- Use `API_BASE_URL=http://127.0.0.1:3000` for Flutter web or desktop on the same PC
-- Use `API_BASE_URL=http://YOUR_WINDOWS_IP:3000` for a real phone, for example `http://192.168.5.254:3000`
-- After changing `.env`, fully restart the Flutter app so the new value is loaded
+- Use `http://10.0.2.2:3000` for the Android emulator
+- Use your Windows LAN IP for a real device
 
-## Launch Password
+## Important Notes
 
-- The app asks for today’s password before opening
-- Format: `OneNetDDMMMyyyy`
-- Example for March 21, 2026: `OneNet21Mar2026`
-
-## Flutter Run
-
-```bash
-flutter pub get
-flutter run
-```
+- Admin password and launch password both use `OneNetDDMMMyyyy`
+- Saved report queries are restricted to read-only `SELECT` or `WITH ... SELECT` statements
+- SQL login servers are executed through the `mssql` driver
+- Windows authentication servers are executed through `sqlcmd`, so `sqlcmd` must be installed and available in `PATH`
+- Company logo is stored as a URL and is reused in the PDF header
 
 ## API Routes
 
 - `GET /health`
-- `GET /api/settings/profiles`
-- `POST /api/settings/profiles`
-- `DELETE /api/settings/profiles/:id`
-- `POST /api/databases/attach`
-- `POST /api/databases/detach`
+- `GET /api/reporting/bootstrap`
+- `POST /api/reporting/run`
+- `POST /api/admin/verify`
+- `POST /api/admin/bootstrap`
+- `POST /api/admin/settings`
+- `POST /api/admin/servers`
+- `DELETE /api/admin/servers/:id`
+- `POST /api/admin/queries`
+- `DELETE /api/admin/queries/:id`

@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const mssql = require('mssql');
 const { spawn } = require('child_process');
 
 loadEnv();
@@ -13,7 +14,6 @@ const MYSQL_PORT = parseInt(process.env.MYSQL_PORT || '3306', 10);
 const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
 const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'database_utilities';
-const API_BASE_URL = process.env.API_BASE_URL || '';
 
 let pool;
 
@@ -25,10 +25,8 @@ function loadEnv() {
   }
 
   const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
-
   for (const rawLine of lines) {
     const line = rawLine.trim();
-
     if (!line || line.startsWith('#')) {
       continue;
     }
@@ -71,12 +69,23 @@ async function initializeStorage() {
   });
 
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS database_profiles (
+    CREATE TABLE IF NOT EXISTS app_settings (
+      id TINYINT NOT NULL,
+      company_name VARCHAR(255) NOT NULL DEFAULT '',
+      company_address TEXT NULL,
+      company_logo_url TEXT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reporting_servers (
       id INT NOT NULL AUTO_INCREMENT,
-      server VARCHAR(255) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      host VARCHAR(255) NOT NULL,
+      port INT NOT NULL DEFAULT 1433,
       database_name VARCHAR(255) NOT NULL,
-      mdf_path TEXT NOT NULL,
-      ldf_path TEXT NULL,
       authentication_mode VARCHAR(20) NOT NULL,
       username VARCHAR(255) NULL,
       password TEXT NULL,
@@ -84,6 +93,24 @@ async function initializeStorage() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS report_queries (
+      id INT NOT NULL AUTO_INCREMENT,
+      query_name VARCHAR(255) NOT NULL,
+      query_text LONGTEXT NOT NULL,
+      show_chart_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    INSERT INTO app_settings (id, company_name, company_address, company_logo_url)
+    VALUES (1, '', '', '')
+    ON DUPLICATE KEY UPDATE id = id;
   `);
 }
 
@@ -103,8 +130,8 @@ function readJsonBody(req) {
 
     req.on('data', (chunk) => {
       body += chunk.toString();
-      if (body.length > 1024 * 1024) {
-        reject(new Error('Request body is too large.'));
+      if (body.length > 1024 * 1024 * 2) {
+        reject(createHttpError(413, 'Request body is too large.'));
       }
     });
 
@@ -117,7 +144,7 @@ function readJsonBody(req) {
       try {
         resolve(JSON.parse(body));
       } catch (_) {
-        reject(new Error('Invalid JSON body.'));
+        reject(createHttpError(400, 'Invalid JSON body.'));
       }
     });
 
@@ -125,20 +152,50 @@ function readJsonBody(req) {
   });
 }
 
-function escapeSqlString(value) {
-  return String(value || '').replace(/'/g, "''");
+function createHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }
 
-function escapeSqlIdentifier(value) {
-  return String(value || '').replace(/]/g, ']]');
+function buildExpectedAdminPassword() {
+  const now = new Date();
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  const day = `${now.getDate()}`.padStart(2, '0');
+  const month = months[now.getMonth()];
+  const year = `${now.getFullYear()}`;
+  return `OneNet${day}${month}${year}`;
 }
 
-function validateProfile(payload) {
+function assertAdminPassword(password) {
+  if (String(password || '').trim() !== buildExpectedAdminPassword()) {
+    throw createHttpError(
+      401,
+      'Invalid admin password for today. Expected format is OneNetDDMMMyyyy.',
+    );
+  }
+}
+
+function validateServerPayload(payload) {
   const missing = [];
 
-  if (!payload.server) missing.push('server');
+  if (!payload.name) missing.push('name');
+  if (!payload.host) missing.push('host');
   if (!payload.databaseName) missing.push('databaseName');
-  if (!payload.mdfPath) missing.push('mdfPath');
   if (!payload.authenticationMode) missing.push('authenticationMode');
 
   if (payload.authenticationMode === 'sqlServer') {
@@ -149,132 +206,395 @@ function validateProfile(payload) {
   return missing;
 }
 
-function buildAttachQuery(payload) {
-  const databaseName = escapeSqlIdentifier(payload.databaseName);
-  const databaseString = escapeSqlString(payload.databaseName);
-  const mdf = escapeSqlString(payload.mdfPath);
+function validateQueryPayload(payload) {
+  const missing = [];
 
-  if (payload.ldfPath && String(payload.ldfPath).trim()) {
-    const ldf = escapeSqlString(payload.ldfPath);
-    return `
-IF DB_ID(N'${databaseString}') IS NOT NULL
-BEGIN
-    THROW 50000, 'Database already exists.', 1;
-END
-CREATE DATABASE [${databaseName}]
-ON
-(FILENAME = N'${mdf}'),
-(FILENAME = N'${ldf}')
-FOR ATTACH;
-`;
-  }
+  if (!payload.queryName) missing.push('queryName');
+  if (!payload.queryText) missing.push('queryText');
 
-  return `
-IF DB_ID(N'${databaseString}') IS NOT NULL
-BEGIN
-    THROW 50000, 'Database already exists.', 1;
-END
-CREATE DATABASE [${databaseName}]
-ON
-(FILENAME = N'${mdf}')
-FOR ATTACH_REBUILD_LOG;
-`;
+  return missing;
 }
 
-function buildDetachQuery(payload) {
-  const databaseName = escapeSqlIdentifier(payload.databaseName);
-  const databaseString = escapeSqlString(payload.databaseName);
+function isReadOnlyQuery(queryText) {
+  const normalized = String(queryText || '')
+    .trim()
+    .replace(/;+$/g, '')
+    .toLowerCase();
 
-  return `
-IF DB_ID(N'${databaseString}') IS NULL
-BEGIN
-    THROW 50000, 'Database not found.', 1;
-END
-ALTER DATABASE [${databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-EXEC master.dbo.sp_detach_db @dbname = N'${databaseString}';
-  `;
-}
-
-function buildAttachmentStatusQuery(payload) {
-  const databaseString = escapeSqlString(payload.databaseName);
-  const mdfPath = escapeSqlString(String(payload.mdfPath || '').replace(/\//g, '\\'));
-  const ldfPath = escapeSqlString(String(payload.ldfPath || '').replace(/\//g, '\\'));
-  return `
-SET NOCOUNT ON;
-IF DB_ID(N'${databaseString}') IS NULL
-BEGIN
-    PRINT '__DETACHED__';
-END
-ELSE
-BEGIN
-    DECLARE @expectedMdf NVARCHAR(4000) = LOWER(N'${mdfPath}');
-    DECLARE @expectedLdf NVARCHAR(4000) = LOWER(N'${ldfPath}');
-
-    IF EXISTS (
-        SELECT 1
-        FROM sys.master_files
-        WHERE database_id = DB_ID(N'${databaseString}')
-          AND type_desc = 'ROWS'
-          AND LOWER(physical_name) = @expectedMdf
-    )
-    AND (
-        @expectedLdf = ''
-        OR EXISTS (
-            SELECT 1
-            FROM sys.master_files
-            WHERE database_id = DB_ID(N'${databaseString}')
-              AND type_desc = 'LOG'
-              AND LOWER(physical_name) = @expectedLdf
-        )
-    )
-    BEGIN
-        PRINT '__ATTACHED__';
-    END
-    ELSE
-    BEGIN
-        PRINT '__NAME_CONFLICT__';
-    END
-END
-`;
-}
-
-function buildSqlcmdArgs(payload, query) {
-  const normalizedQuery = query
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(' ');
-
-  const args = ['-S', payload.server];
-
-  if (payload.authenticationMode === 'windows') {
-    args.push('-E');
-  } else {
-    args.push('-U', payload.username, '-P', payload.password);
+  if (!normalized || !(normalized.startsWith('select') || normalized.startsWith('with'))) {
+    return false;
   }
 
-  args.push('-b', '-Q', normalizedQuery);
+  const blockedKeywords = [
+    'insert',
+    'update',
+    'delete',
+    'drop',
+    'alter',
+    'create',
+    'truncate',
+    'merge',
+    'exec',
+    'execute',
+    'grant',
+    'revoke',
+    'backup',
+    'restore',
+  ];
 
-  const displayArgs = ['-S', payload.server];
+  return !blockedKeywords.some((keyword) =>
+    new RegExp(`\\b${keyword}\\b`, 'i').test(normalized),
+  );
+}
 
-  if (payload.authenticationMode === 'windows') {
-    displayArgs.push('-E');
-  } else {
-    displayArgs.push('-U', payload.username, '-P', '********');
+function toBoolean(value) {
+  return value === true || value === 1 || value === '1';
+}
+
+function normalizeCellValue(value) {
+  if (value == null) {
+    return null;
   }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString('base64');
+  }
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  return value;
+}
 
-  displayArgs.push('-b', '-Q', normalizedQuery);
+async function getCompanyProfile() {
+  const [rows] = await pool.query(
+    `SELECT company_name, company_address, company_logo_url
+     FROM app_settings
+     WHERE id = 1`,
+  );
 
+  const row = rows[0] || {};
   return {
-    args,
-    displayCommand: `sqlcmd ${displayArgs.join(' ')}`,
+    companyName: row.company_name || '',
+    companyAddress: row.company_address || '',
+    companyLogoUrl: row.company_logo_url || '',
   };
 }
 
-function runSqlcmd(payload, query) {
-  return new Promise((resolve) => {
-    const { args, displayCommand } = buildSqlcmdArgs(payload, query);
-    const child = spawn('sqlcmd', args, {
+async function listServers({ includeSecrets }) {
+  const [rows] = await pool.query(
+    `SELECT id, name, host, port, database_name, authentication_mode, username, password
+     FROM reporting_servers
+     ORDER BY name ASC, id ASC`,
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    databaseName: row.database_name,
+    authenticationMode: row.authentication_mode,
+    username: includeSecrets ? row.username || '' : '',
+    password: includeSecrets ? row.password || '' : '',
+  }));
+}
+
+async function listQueries({ includeSql }) {
+  const [rows] = await pool.query(
+    `SELECT id, query_name, query_text, show_chart_default
+     FROM report_queries
+     ORDER BY query_name ASC, id ASC`,
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    queryName: row.query_name,
+    queryText: includeSql ? row.query_text : '',
+    showChartByDefault: !!row.show_chart_default,
+  }));
+}
+
+async function loadReportingBootstrap() {
+  return {
+    companyProfile: await getCompanyProfile(),
+    servers: await listServers({ includeSecrets: false }),
+    queries: await listQueries({ includeSql: false }),
+  };
+}
+
+async function loadAdminBootstrap() {
+  return {
+    companyProfile: await getCompanyProfile(),
+    servers: await listServers({ includeSecrets: true }),
+    queries: await listQueries({ includeSql: true }),
+  };
+}
+
+async function saveCompanyProfile(payload) {
+  await pool.query(
+    `UPDATE app_settings
+     SET company_name = ?,
+         company_address = ?,
+         company_logo_url = ?
+     WHERE id = 1`,
+    [
+      String(payload.companyName || '').trim(),
+      String(payload.companyAddress || '').trim(),
+      String(payload.companyLogoUrl || '').trim(),
+    ],
+  );
+}
+
+async function saveServer(payload) {
+  const values = [
+    String(payload.name || '').trim(),
+    String(payload.host || '').trim(),
+    parseInt(payload.port, 10) || 1433,
+    String(payload.databaseName || '').trim(),
+    payload.authenticationMode === 'windows' ? 'windows' : 'sqlServer',
+    String(payload.username || '').trim(),
+    String(payload.password || ''),
+  ];
+
+  if (payload.id) {
+    await pool.query(
+      `UPDATE reporting_servers
+       SET name = ?,
+           host = ?,
+           port = ?,
+           database_name = ?,
+           authentication_mode = ?,
+           username = ?,
+           password = ?
+       WHERE id = ?`,
+      [...values, payload.id],
+    );
+    return 'SQL server updated successfully.';
+  }
+
+  await pool.query(
+    `INSERT INTO reporting_servers (
+      name,
+      host,
+      port,
+      database_name,
+      authentication_mode,
+      username,
+      password
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    values,
+  );
+
+  return 'SQL server saved successfully.';
+}
+
+async function deleteServer(id) {
+  const [result] = await pool.query('DELETE FROM reporting_servers WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
+async function saveQuery(payload) {
+  const values = [
+    String(payload.queryName || '').trim(),
+    String(payload.queryText || '').trim(),
+    toBoolean(payload.showChartByDefault) ? 1 : 0,
+  ];
+
+  if (payload.id) {
+    await pool.query(
+      `UPDATE report_queries
+       SET query_name = ?,
+           query_text = ?,
+           show_chart_default = ?
+       WHERE id = ?`,
+      [...values, payload.id],
+    );
+    return 'Report query updated successfully.';
+  }
+
+  await pool.query(
+    `INSERT INTO report_queries (query_name, query_text, show_chart_default)
+     VALUES (?, ?, ?)`,
+    values,
+  );
+
+  return 'Report query saved successfully.';
+}
+
+async function deleteQuery(id) {
+  const [result] = await pool.query('DELETE FROM report_queries WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
+async function getServerById(id) {
+  const [rows] = await pool.query(
+    `SELECT id, name, host, port, database_name, authentication_mode, username, password
+     FROM reporting_servers
+     WHERE id = ?
+     LIMIT 1`,
+    [id],
+  );
+
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    databaseName: row.database_name,
+    authenticationMode: row.authentication_mode,
+    username: row.username || '',
+    password: row.password || '',
+  };
+}
+
+async function getQueryById(id) {
+  const [rows] = await pool.query(
+    `SELECT id, query_name, query_text, show_chart_default
+     FROM report_queries
+     WHERE id = ?
+     LIMIT 1`,
+    [id],
+  );
+
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    queryName: row.query_name,
+    queryText: row.query_text,
+    showChartByDefault: !!row.show_chart_default,
+  };
+}
+
+async function runReport(serverId, queryId) {
+  const serverConfig = await getServerById(serverId);
+  if (!serverConfig) {
+    throw createHttpError(404, 'Selected SQL server was not found.');
+  }
+
+  const queryConfig = await getQueryById(queryId);
+  if (!queryConfig) {
+    throw createHttpError(404, 'Selected query was not found.');
+  }
+
+  if (!isReadOnlyQuery(queryConfig.queryText)) {
+    throw createHttpError(
+      400,
+      'Only read-only SELECT queries can be executed for reporting.',
+    );
+  }
+
+  const table = serverConfig.authenticationMode === 'windows'
+      ? await runSqlcmdReportQuery(serverConfig, queryConfig.queryText)
+      : await runMssqlQuery(serverConfig, queryConfig.queryText);
+
+  return {
+    serverName: serverConfig.name,
+    queryName: queryConfig.queryName,
+    executedAt: new Date().toISOString(),
+    columns: table.columns,
+    rows: table.rows,
+    rowCount: table.rows.length,
+  };
+}
+
+async function runMssqlQuery(serverConfig, queryText) {
+  const sqlPool = new mssql.ConnectionPool({
+    server: serverConfig.host,
+    port: parseInt(serverConfig.port, 10) || 1433,
+    database: serverConfig.databaseName,
+    user: serverConfig.username,
+    password: serverConfig.password,
+    options: {
+      encrypt: false,
+      trustServerCertificate: true,
+    },
+    requestTimeout: 120000,
+    connectionTimeout: 30000,
+  });
+
+  await sqlPool.connect();
+
+  try {
+    const result = await sqlPool.request().query(queryText);
+    const recordset = result.recordset || [];
+    const columns = Object.keys(result.recordset?.columns || recordset[0] || {});
+    const rows = recordset.map((row) => {
+      const normalized = {};
+      for (const column of columns) {
+        normalized[column] = normalizeCellValue(row[column]);
+      }
+      return normalized;
+    });
+
+    return { columns, rows };
+  } catch (error) {
+    throw createHttpError(
+      500,
+      error.message || 'Could not execute the query on SQL Server.',
+    );
+  } finally {
+    await sqlPool.close();
+  }
+}
+
+function buildSqlcmdArgs(serverConfig, queryText) {
+  const args = ['-S', serverConfig.host, '-d', serverConfig.databaseName];
+
+  if (serverConfig.authenticationMode === 'windows') {
+    args.push('-E');
+  } else {
+    args.push('-U', serverConfig.username, '-P', serverConfig.password);
+  }
+
+  args.push('-W', '-s', '|', '-y', '0', '-Y', '0', '-Q', `SET NOCOUNT ON; ${queryText}`);
+  return args;
+}
+
+function parseSqlcmdTableOutput(output) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+$/, ''))
+    .filter(Boolean)
+    .filter((line) => !/^\(\d+ rows affected\)$/i.test(line));
+
+  const separatorIndex = lines.findIndex((line) => /^[-| ]+$/.test(line));
+  if (separatorIndex < 1) {
+    return {
+      columns: [],
+      rows: [],
+    };
+  }
+
+  const columns = lines[separatorIndex - 1].split('|').map((item) => item.trim());
+  const dataLines = lines.slice(separatorIndex + 1);
+  const rows = dataLines
+    .filter((line) => line.includes('|'))
+    .map((line) => {
+      const parts = line.split('|');
+      const row = {};
+      columns.forEach((column, index) => {
+        row[column] = (parts[index] || '').trim();
+      });
+      return row;
+    });
+
+  return { columns, rows };
+}
+
+function runSqlcmdReportQuery(serverConfig, queryText) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('sqlcmd', buildSqlcmdArgs(serverConfig, queryText), {
       windowsHide: true,
     });
 
@@ -290,129 +610,48 @@ function runSqlcmd(payload, query) {
     });
 
     child.on('error', (error) => {
-      resolve({
-        success: false,
-        message:
-          `Could not start sqlcmd. Install SQL Server command-line tools and make sure sqlcmd is in PATH. Details: ${error.message}`,
-        command: displayCommand,
-      });
+      reject(
+        createHttpError(
+          500,
+          `Could not start sqlcmd. Install SQL Server tools and make sure sqlcmd is in PATH. Details: ${error.message}`,
+        ),
+      );
     });
 
     child.on('close', (code) => {
-      const combined = [stdoutText.trim(), stderrText.trim()]
-        .filter(Boolean)
-        .join('\n');
-
-      if (code === 0) {
-        resolve({
-          success: true,
-          message: combined || 'Operation completed successfully.',
-          command: displayCommand,
-        });
+      if (code !== 0) {
+        reject(
+          createHttpError(
+            500,
+            stderrText.trim() || stdoutText.trim() || `sqlcmd exited with code ${code}.`,
+          ),
+        );
         return;
       }
 
-      resolve({
-        success: false,
-        message: combined || `SQL command failed with exit code ${code}.`,
-        command: displayCommand,
-      });
+      resolve(parseSqlcmdTableOutput(stdoutText));
     });
   });
 }
 
-async function resolveAttachmentStatus(profile) {
-  const result = await runSqlcmd(profile, buildAttachmentStatusQuery(profile));
-  if (!result.success) {
-    return 'unknown';
+function maskSecret(value) {
+  if (!value) {
+    return '(empty)';
   }
 
-  if (result.message.includes('__ATTACHED__')) {
-    return 'attached';
-  }
-
-  if (result.message.includes('__DETACHED__')) {
-    return 'detached';
-  }
-
-  if (result.message.includes('__NAME_CONFLICT__')) {
-    return 'nameConflict';
-  }
-
-  return 'unknown';
+  return '*'.repeat(Math.max(String(value).length, 8));
 }
 
-async function listProfiles() {
-  const [rows] = await pool.query(
-    `SELECT id, server, database_name, mdf_path, ldf_path, authentication_mode, username, password
-     FROM database_profiles
-     ORDER BY id DESC`,
-  );
-
-  const profiles = rows.map((row) => ({
-    id: row.id,
-    server: row.server,
-    databaseName: row.database_name,
-    mdfPath: row.mdf_path,
-    ldfPath: row.ldf_path || '',
-    authenticationMode: row.authentication_mode,
-    username: row.username || '',
-    password: row.password || '',
-  }));
-
-  return Promise.all(
-    profiles.map(async (profile) => ({
-      ...profile,
-      attachmentStatus: await resolveAttachmentStatus(profile),
-    })),
-  );
-}
-
-async function saveProfile(payload) {
-  const values = [
-    payload.server,
-    payload.databaseName,
-    payload.mdfPath,
-    payload.ldfPath || '',
-    payload.authenticationMode,
-    payload.username || '',
-    payload.password || '',
-  ];
-
-  if (payload.id) {
-    await pool.query(
-      `UPDATE database_profiles
-       SET server = ?,
-           database_name = ?,
-           mdf_path = ?,
-           ldf_path = ?,
-           authentication_mode = ?,
-           username = ?,
-           password = ?
-       WHERE id = ?`,
-      [...values, payload.id],
-    );
-    return 'Settings updated successfully.';
-  }
-
-  await pool.query(
-    `INSERT INTO database_profiles (
-      server,
-      database_name,
-      mdf_path,
-      ldf_path,
-      authentication_mode,
-      username,
-      password
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    values,
-  );
-  return 'Settings saved successfully.';
-}
-
-async function deleteProfile(id) {
-  const [result] = await pool.query('DELETE FROM database_profiles WHERE id = ?', [id]);
-  return result.affectedRows > 0;
+function logStartupSettings() {
+  console.log('================ REPORTING API SETTINGS ================');
+  console.log(`HOST: ${HOST}`);
+  console.log(`PORT: ${PORT}`);
+  console.log(`MYSQL_HOST: ${MYSQL_HOST}`);
+  console.log(`MYSQL_PORT: ${MYSQL_PORT}`);
+  console.log(`MYSQL_USER: ${MYSQL_USER}`);
+  console.log(`MYSQL_PASSWORD: ${maskSecret(MYSQL_PASSWORD)}`);
+  console.log(`MYSQL_DATABASE: ${MYSQL_DATABASE}`);
+  console.log('========================================================');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -421,176 +660,165 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/health') {
-    try {
-      const profiles = await listProfiles();
-      const primaryProfile = profiles[0] || null;
-      const sqlDatabaseName = primaryProfile ? primaryProfile.databaseName : 'not configured';
+  const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = requestUrl.pathname;
+
+  try {
+    if (req.method === 'GET' && pathname === '/health') {
+      const [serverRows] = await pool.query('SELECT COUNT(*) AS total FROM reporting_servers');
+      const [queryRows] = await pool.query('SELECT COUNT(*) AS total FROM report_queries');
 
       sendJson(res, 200, {
         success: true,
-        message: `API server is running securely. Active database profile: ${sqlDatabaseName}.`,
-        sqlDatabaseName,
-        storage: 'configured',
+        message: `Reporting API is running. Saved servers: ${serverRows[0].total}. Saved queries: ${queryRows[0].total}.`,
+        savedServers: serverRows[0].total,
+        savedQueries: queryRows[0].total,
         timestamp: new Date().toISOString(),
       });
-    } catch (error) {
-      sendJson(res, 500, {
-        success: false,
-        message: error.message || 'Could not build health status.',
-      });
+      return;
     }
-    return;
-  }
 
-  if (req.method === 'GET' && req.url === '/api/settings/profiles') {
-    try {
-      const profiles = await listProfiles();
+    if (req.method === 'GET' && pathname === '/api/reporting/bootstrap') {
+      sendJson(res, 200, await loadReportingBootstrap());
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/admin/verify') {
+      const payload = await readJsonBody(req);
+      assertAdminPassword(payload.adminPassword);
       sendJson(res, 200, {
         success: true,
-        profiles,
+        message: 'Admin access granted for today.',
       });
-    } catch (error) {
-      sendJson(res, 500, {
-        success: false,
-        message: error.message || 'Could not load profiles from MySQL.',
-      });
+      return;
     }
-    return;
-  }
 
-  if (req.method === 'POST' && req.url === '/api/settings/profiles') {
-    try {
+    if (req.method === 'POST' && pathname === '/api/admin/bootstrap') {
       const payload = await readJsonBody(req);
-      const missing = validateProfile(payload);
+      assertAdminPassword(payload.adminPassword);
+      sendJson(res, 200, await loadAdminBootstrap());
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/admin/settings') {
+      const payload = await readJsonBody(req);
+      assertAdminPassword(payload.adminPassword);
+      await saveCompanyProfile(payload);
+      sendJson(res, 200, {
+        success: true,
+        message: 'Company profile saved successfully.',
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/admin/servers') {
+      const payload = await readJsonBody(req);
+      assertAdminPassword(payload.adminPassword);
+      const missing = validateServerPayload(payload);
 
       if (missing.length > 0) {
-        sendJson(res, 400, {
-          success: false,
-          message: `Missing required fields: ${missing.join(', ')}`,
-        });
-        return;
+        throw createHttpError(
+          400,
+          `Missing required server fields: ${missing.join(', ')}`,
+        );
       }
 
-      const message = await saveProfile(payload);
+      const message = await saveServer(payload);
       sendJson(res, 200, {
         success: true,
         message,
       });
-    } catch (error) {
-      sendJson(res, 500, {
-        success: false,
-        message: error.message || 'Could not save profile to MySQL.',
-      });
+      return;
     }
-    return;
-  }
 
-  if (req.method === 'DELETE' && req.url.startsWith('/api/settings/profiles/')) {
-    try {
-      const id = parseInt(req.url.split('/').pop(), 10);
+    if (req.method === 'DELETE' && pathname.startsWith('/api/admin/servers/')) {
+      const payload = await readJsonBody(req);
+      assertAdminPassword(payload.adminPassword);
+      const id = parseInt(pathname.split('/').pop(), 10);
+
       if (!Number.isFinite(id)) {
-        sendJson(res, 400, {
-          success: false,
-          message: 'Invalid profile id.',
-        });
-        return;
+        throw createHttpError(400, 'Invalid server id.');
       }
 
-      const removed = await deleteProfile(id);
+      const removed = await deleteServer(id);
       sendJson(res, removed ? 200 : 404, {
         success: removed,
-        message: removed ? 'Settings deleted successfully.' : 'Settings not found.',
+        message: removed ? 'SQL server deleted successfully.' : 'SQL server not found.',
       });
-    } catch (error) {
-      sendJson(res, 500, {
-        success: false,
-        message: error.message || 'Could not delete profile from MySQL.',
-      });
+      return;
     }
-    return;
-  }
 
-  if (req.method === 'POST' && req.url === '/api/databases/attach') {
-    try {
+    if (req.method === 'POST' && pathname === '/api/admin/queries') {
       const payload = await readJsonBody(req);
-      const missing = validateProfile(payload);
+      assertAdminPassword(payload.adminPassword);
+      const missing = validateQueryPayload(payload);
 
       if (missing.length > 0) {
-        sendJson(res, 400, {
-          success: false,
-          message: `Missing required fields: ${missing.join(', ')}`,
-        });
-        return;
+        throw createHttpError(
+          400,
+          `Missing required query fields: ${missing.join(', ')}`,
+        );
       }
 
-      const result = await runSqlcmd(payload, buildAttachQuery(payload));
-      sendJson(res, result.success ? 200 : 500, result);
-    } catch (error) {
-      sendJson(res, 400, {
-        success: false,
-        message: error.message || 'Unable to process request.',
-      });
-    }
-    return;
-  }
+      if (!isReadOnlyQuery(payload.queryText)) {
+        throw createHttpError(
+          400,
+          'Only read-only SELECT queries can be saved for reporting.',
+        );
+      }
 
-  if (req.method === 'POST' && req.url === '/api/databases/detach') {
-    try {
+      const message = await saveQuery(payload);
+      sendJson(res, 200, {
+        success: true,
+        message,
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE' && pathname.startsWith('/api/admin/queries/')) {
       const payload = await readJsonBody(req);
-      const missing = validateProfile(payload);
+      assertAdminPassword(payload.adminPassword);
+      const id = parseInt(pathname.split('/').pop(), 10);
 
-      if (missing.length > 0) {
-        sendJson(res, 400, {
-          success: false,
-          message: `Missing required fields: ${missing.join(', ')}`,
-        });
-        return;
+      if (!Number.isFinite(id)) {
+        throw createHttpError(400, 'Invalid query id.');
       }
 
-      const result = await runSqlcmd(payload, buildDetachQuery(payload));
-      sendJson(res, result.success ? 200 : 500, result);
-    } catch (error) {
-      sendJson(res, 400, {
-        success: false,
-        message: error.message || 'Unable to process request.',
+      const removed = await deleteQuery(id);
+      sendJson(res, removed ? 200 : 404, {
+        success: removed,
+        message: removed ? 'Report query deleted successfully.' : 'Report query not found.',
       });
+      return;
     }
-    return;
-  }
 
-  sendJson(res, 404, {
-    success: false,
-    message: 'Route not found.',
-  });
+    if (req.method === 'POST' && pathname === '/api/reporting/run') {
+      const payload = await readJsonBody(req);
+      const serverId = parseInt(payload.serverId, 10);
+      const queryId = parseInt(payload.queryId, 10);
+
+      if (!Number.isFinite(serverId) || !Number.isFinite(queryId)) {
+        throw createHttpError(400, 'serverId and queryId are required.');
+      }
+
+      sendJson(res, 200, await runReport(serverId, queryId));
+      return;
+    }
+
+    throw createHttpError(404, 'Route not found.');
+  } catch (error) {
+    sendJson(res, error.statusCode || 500, {
+      success: false,
+      message: error.message || 'Unable to process request.',
+    });
+  }
 });
-
-function maskSecret(value) {
-  if (!value) {
-    return '(empty)';
-  }
-
-  return '*'.repeat(Math.max(value.length, 8));
-}
-
-function logStartupSettings() {
-  console.log('================ API SERVER SETTINGS ================');
-  console.log(`API_BASE_URL: ${API_BASE_URL || '(not set)'}`);
-  console.log(`HOST: ${HOST}`);
-  console.log(`PORT: ${PORT}`);
-  console.log(`MYSQL_HOST: ${MYSQL_HOST}`);
-  console.log(`MYSQL_PORT: ${MYSQL_PORT}`);
-  console.log(`MYSQL_USER: ${MYSQL_USER}`);
-  console.log(`MYSQL_PASSWORD: ${maskSecret(MYSQL_PASSWORD)}`);
-  console.log(`MYSQL_DATABASE: ${MYSQL_DATABASE}`);
-  console.log('====================================================');
-}
 
 initializeStorage()
   .then(() => {
     server.listen(PORT, HOST, () => {
       logStartupSettings();
-      console.log(`Database Utilities API listening on http://${HOST}:${PORT}`);
+      console.log(`VitalPro Reporting API listening on http://${HOST}:${PORT}`);
       console.log(`MySQL storage ready on ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
     });
   })

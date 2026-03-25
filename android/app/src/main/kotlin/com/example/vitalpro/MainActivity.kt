@@ -1,4 +1,4 @@
-package com.example.database_utlities
+package com.example.vitalpro
 
 import io.flutter.embedding.android.FlutterActivity
 
