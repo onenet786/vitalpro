@@ -13,7 +13,7 @@ const MYSQL_HOST = process.env.MYSQL_HOST || '127.0.0.1';
 const MYSQL_PORT = parseInt(process.env.MYSQL_PORT || '3306', 10);
 const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
-const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'database_utilities';
+const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'vitalpro_reporting';
 
 let pool;
 
@@ -654,6 +654,29 @@ function logStartupSettings() {
   console.log('========================================================');
 }
 
+function formatStartupError(error) {
+  if (!error) {
+    return 'Unknown startup error.';
+  }
+
+  const code = error.code ? ` (${error.code})` : '';
+  const rawMessage = typeof error.message === 'string' ? error.message.trim() : '';
+
+  if (rawMessage) {
+    return `${rawMessage}${code}`;
+  }
+
+  if (error.code === 'ECONNREFUSED') {
+    return `Could not connect to MySQL at ${MYSQL_HOST}:${MYSQL_PORT} as ${MYSQL_USER}${code}. Make sure the MySQL service is running and the .env connection settings are correct.`;
+  }
+
+  if (error.code === 'ENOTFOUND') {
+    return `MySQL host "${MYSQL_HOST}" could not be resolved${code}. Check MYSQL_HOST in .env.`;
+  }
+
+  return String(error);
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
@@ -814,15 +837,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+logStartupSettings();
+
 initializeStorage()
   .then(() => {
     server.listen(PORT, HOST, () => {
-      logStartupSettings();
       console.log(`VitalPro Reporting API listening on http://${HOST}:${PORT}`);
       console.log(`MySQL storage ready on ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
     });
   })
   .catch((error) => {
-    console.error('Failed to start API:', error.message);
+    console.error('Failed to start API:', formatStartupError(error));
     process.exit(1);
   });

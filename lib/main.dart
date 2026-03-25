@@ -17,44 +17,13 @@ class VitalProApp extends StatefulWidget {
   State<VitalProApp> createState() => _VitalProAppState();
 }
 
-class _VitalProAppState extends State<VitalProApp>
-    with WidgetsBindingObserver {
+class _VitalProAppState extends State<VitalProApp> {
   bool _isUnlocked = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _lockSession();
-    }
-  }
 
   void _unlockSession() {
     if (!_isUnlocked) {
       setState(() {
         _isUnlocked = true;
-      });
-    }
-  }
-
-  void _lockSession() {
-    if (_isUnlocked) {
-      setState(() {
-        _isUnlocked = false;
       });
     }
   }

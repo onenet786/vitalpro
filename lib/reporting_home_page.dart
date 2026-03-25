@@ -799,7 +799,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ),
             ),
             pw.SizedBox(height: 16),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: report.columns,
               data: tableData,
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
@@ -1031,40 +1031,44 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             if (_servers.isEmpty)
               _buildEmptyMessage('No SQL servers saved yet.')
             else
-              ..._servers.map((server) {
-                final isSelected = server.id == _selectedServerId;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: isSelected
-                          ? const Color(0xFF0B5D7A)
-                          : const Color(0xFFD8E2EC),
-                    ),
-                    color: isSelected
-                        ? const Color(0xFFE9F5FA)
-                        : Colors.white,
-                  ),
-                  child: RadioListTile<int>(
-                    value: server.id ?? -1,
-                    groupValue: _selectedServerId,
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedServerId = value;
-                        _reportResult = null;
-                      });
-                    },
-                    title: Text(
-                      server.label,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: Text(
-                      '${server.host}:${server.port}  -  ${server.databaseName}',
-                    ),
-                  ),
-                );
-              }),
+              RadioGroup<int>(
+                groupValue: _selectedServerId,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedServerId = value;
+                    _reportResult = null;
+                  });
+                },
+                child: Column(
+                  children: _servers.map((server) {
+                    final isSelected = server.id == _selectedServerId;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF0B5D7A)
+                              : const Color(0xFFD8E2EC),
+                        ),
+                        color: isSelected
+                            ? const Color(0xFFE9F5FA)
+                            : Colors.white,
+                      ),
+                      child: RadioListTile<int>(
+                        value: server.id ?? -1,
+                        title: Text(
+                          server.label,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        subtitle: Text(
+                          '${server.host}:${server.port}  -  ${server.databaseName}',
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
             const SizedBox(height: 8),
             Row(
               children: [

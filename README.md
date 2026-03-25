@@ -49,7 +49,7 @@ MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_USER=root
 MYSQL_PASSWORD=your_mysql_password
-MYSQL_DATABASE=database_utilities
+MYSQL_DATABASE=vitalpro_reporting
 ```
 
 - Use `http://10.0.2.2:3000` for the Android emulator
