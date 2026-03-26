@@ -53,6 +53,9 @@ class _VitalProAppState extends State<VitalProApp> {
           : ReportingHomePage(
               session: _session!,
               onLogout: _clearSession,
+              homeMode: _session!.user.isAdmin
+                  ? HomeMode.admin
+                  : HomeMode.reporting,
             ),
     );
   }

@@ -104,6 +104,7 @@ async function initializeStorage() {
       id INT NOT NULL AUTO_INCREMENT,
       query_name VARCHAR(255) NOT NULL,
       query_text LONGTEXT NOT NULL,
+      filters_json LONGTEXT NULL,
       show_chart_default TINYINT(1) NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -132,6 +133,32 @@ async function initializeStorage() {
   `);
 
   await ensureDefaultAdminUser();
+  await ensureOptionalSchemaColumns();
+}
+
+async function ensureOptionalSchemaColumns() {
+  await ensureColumnExists(
+    'report_queries',
+    'filters_json',
+    'ALTER TABLE report_queries ADD COLUMN filters_json LONGTEXT NULL AFTER query_text',
+  );
+}
+
+async function ensureColumnExists(tableName, columnName, alterStatement) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [MYSQL_DATABASE, tableName, columnName],
+  );
+
+  if ((rows[0]?.total || 0) > 0) {
+    return;
+  }
+
+  await pool.query(alterStatement);
 }
 
 function sendJson(res, statusCode, payload) {
@@ -331,6 +358,51 @@ function validateQueryPayload(payload) {
   return missing;
 }
 
+function normalizeFilterDefinitions(filters) {
+  if (!Array.isArray(filters)) {
+    return [];
+  }
+
+  return filters.map((filter, index) => {
+    const key = String(filter?.key || '').trim();
+    const label = String(filter?.label || '').trim();
+    const type = String(filter?.type || 'text').trim().toLowerCase();
+    const placeholder = String(filter?.placeholder || '').trim();
+    const defaultValue = String(filter?.defaultValue || '').trim();
+
+    if (!key) {
+      throw createHttpError(400, `Filter ${index + 1} is missing a key.`);
+    }
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw createHttpError(
+        400,
+        `Filter "${key}" is invalid. Use letters, numbers, and underscores only.`,
+      );
+    }
+
+    if (!label) {
+      throw createHttpError(400, `Filter "${key}" is missing a label.`);
+    }
+
+    if (!['text', 'number', 'date'].includes(type)) {
+      throw createHttpError(
+        400,
+        `Filter "${key}" has an unsupported type "${type}".`,
+      );
+    }
+
+    return {
+      key,
+      label,
+      type,
+      isRequired: toBoolean(filter?.isRequired),
+      placeholder,
+      defaultValue,
+    };
+  });
+}
+
 function isReadOnlyQuery(queryText) {
   const normalized = String(queryText || '')
     .trim()
@@ -419,7 +491,7 @@ async function listServers({ includeSecrets }) {
 
 async function listQueries({ includeSql }) {
   const [rows] = await pool.query(
-    `SELECT id, query_name, query_text, show_chart_default
+    `SELECT id, query_name, query_text, filters_json, show_chart_default
      FROM report_queries
      ORDER BY query_name ASC, id ASC`,
   );
@@ -428,8 +500,21 @@ async function listQueries({ includeSql }) {
     id: row.id,
     queryName: row.query_name,
     queryText: includeSql ? row.query_text : '',
+    filters: parseFiltersJson(row.filters_json),
     showChartByDefault: !!row.show_chart_default,
   }));
+}
+
+function parseFiltersJson(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return normalizeFilterDefinitions(JSON.parse(value));
+  } catch (_) {
+    return [];
+  }
 }
 
 async function loadReportingBootstrap() {
@@ -512,9 +597,11 @@ async function deleteServer(id) {
 }
 
 async function saveQuery(payload) {
+  const filters = normalizeFilterDefinitions(payload.filters);
   const values = [
     String(payload.queryName || '').trim(),
     String(payload.queryText || '').trim(),
+    JSON.stringify(filters),
     toBoolean(payload.showChartByDefault) ? 1 : 0,
   ];
 
@@ -523,6 +610,7 @@ async function saveQuery(payload) {
       `UPDATE report_queries
        SET query_name = ?,
            query_text = ?,
+           filters_json = ?,
            show_chart_default = ?
        WHERE id = ?`,
       [...values, payload.id],
@@ -531,8 +619,13 @@ async function saveQuery(payload) {
   }
 
   await pool.query(
-    `INSERT INTO report_queries (query_name, query_text, show_chart_default)
-     VALUES (?, ?, ?)`,
+    `INSERT INTO report_queries (
+      query_name,
+      query_text,
+      filters_json,
+      show_chart_default
+    )
+     VALUES (?, ?, ?, ?)`,
     values,
   );
 
@@ -572,7 +665,7 @@ async function getServerById(id) {
 
 async function getQueryById(id) {
   const [rows] = await pool.query(
-    `SELECT id, query_name, query_text, show_chart_default
+    `SELECT id, query_name, query_text, filters_json, show_chart_default
      FROM report_queries
      WHERE id = ?
      LIMIT 1`,
@@ -588,11 +681,88 @@ async function getQueryById(id) {
     id: row.id,
     queryName: row.query_name,
     queryText: row.query_text,
+    filters: parseFiltersJson(row.filters_json),
     showChartByDefault: !!row.show_chart_default,
   };
 }
 
-async function runReport(serverId, queryId) {
+function formatDateLiteral(value) {
+  const normalized = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw createHttpError(
+      400,
+      `Date filter "${value}" must use YYYY-MM-DD format.`,
+    );
+  }
+
+  return `'${normalized}'`;
+}
+
+function formatNumberLiteral(value, key) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
+    throw createHttpError(400, `Filter "${key}" must be a valid number.`);
+  }
+
+  return normalized;
+}
+
+function formatTextLiteral(value) {
+  return `'${String(value || '').replace(/'/g, "''")}'`;
+}
+
+function toSqlLiteral(filter, value) {
+  if (filter.type === 'date') {
+    return formatDateLiteral(value);
+  }
+
+  if (filter.type === 'number') {
+    return formatNumberLiteral(value, filter.key);
+  }
+
+  return formatTextLiteral(value);
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function applyQueryFilters(queryText, filterDefinitions, filterValues) {
+  let sqlText = String(queryText || '');
+
+  for (const filter of filterDefinitions) {
+    const providedValue = filterValues?.[filter.key];
+    const effectiveValue = String(
+      providedValue == null || providedValue === ''
+        ? filter.defaultValue || ''
+        : providedValue,
+    ).trim();
+
+    if (filter.isRequired && !effectiveValue) {
+      throw createHttpError(400, `Filter "${filter.label}" is required.`);
+    }
+
+    if (!effectiveValue) {
+      continue;
+    }
+
+    const literal = toSqlLiteral(filter, effectiveValue);
+    const tokenPattern = new RegExp(
+      `'\\{\\{\\s*${escapeRegex(filter.key)}\\s*\\}\\}'|\\{\\{\\s*${escapeRegex(filter.key)}\\s*\\}\\}`,
+      'g',
+    );
+
+    sqlText = sqlText.replace(tokenPattern, literal);
+  }
+
+  return sqlText;
+}
+
+async function runReport(serverId, queryId, filterValues = {}) {
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
     throw createHttpError(404, 'Selected SQL server was not found.');
@@ -610,9 +780,15 @@ async function runReport(serverId, queryId) {
     );
   }
 
+  const queryText = applyQueryFilters(
+    queryConfig.queryText,
+    queryConfig.filters || [],
+    filterValues,
+  );
+
   const table = serverConfig.authenticationMode === 'windows'
-      ? await runSqlcmdReportQuery(serverConfig, queryConfig.queryText)
-      : await runMssqlQuery(serverConfig, queryConfig.queryText);
+      ? await runSqlcmdReportQuery(serverConfig, queryText)
+      : await runMssqlQuery(serverConfig, queryText);
 
   return {
     serverName: serverConfig.name,
@@ -959,7 +1135,11 @@ const server = http.createServer(async (req, res) => {
         throw createHttpError(400, 'serverId and queryId are required.');
       }
 
-      sendJson(res, 200, await runReport(serverId, queryId));
+      sendJson(
+        res,
+        200,
+        await runReport(serverId, queryId, payload.filters || {}),
+      );
       return;
     }
 

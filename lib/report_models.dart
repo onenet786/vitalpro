@@ -2,6 +2,8 @@ enum AuthenticationMode { windows, sqlServer }
 
 enum UserRole { admin, reporting }
 
+enum QueryFilterType { text, number, date }
+
 UserRole _parseUserRole(dynamic value) {
   return '${value ?? ''}'.toLowerCase() == 'admin'
       ? UserRole.admin
@@ -189,12 +191,14 @@ class SavedQuery {
     this.queryName = '',
     this.queryText = '',
     this.showChartByDefault = false,
+    this.filters = const [],
   });
 
   final int? id;
   final String queryName;
   final String queryText;
   final bool showChartByDefault;
+  final List<QueryFilterDefinition> filters;
 
   factory SavedQuery.fromJson(Map<String, dynamic> json) {
     return SavedQuery(
@@ -209,6 +213,13 @@ class SavedQuery {
           json['show_chart_default'] == 1 ||
           '${json['showChartByDefault'] ?? json['show_chart_default'] ?? ''}' ==
               '1',
+      filters: (json['filters'] as List<dynamic>? ?? const [])
+          .map(
+            (item) => QueryFilterDefinition.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -218,6 +229,7 @@ class SavedQuery {
       'queryName': queryName,
       'queryText': queryText,
       'showChartByDefault': showChartByDefault,
+      'filters': filters.map((filter) => filter.toJson()).toList(),
     };
   }
 
@@ -226,12 +238,84 @@ class SavedQuery {
     String? queryName,
     String? queryText,
     bool? showChartByDefault,
+    List<QueryFilterDefinition>? filters,
   }) {
     return SavedQuery(
       id: id ?? this.id,
       queryName: queryName ?? this.queryName,
       queryText: queryText ?? this.queryText,
       showChartByDefault: showChartByDefault ?? this.showChartByDefault,
+      filters: filters ?? this.filters,
+    );
+  }
+}
+
+class QueryFilterDefinition {
+  const QueryFilterDefinition({
+    required this.key,
+    required this.label,
+    this.type = QueryFilterType.text,
+    this.isRequired = false,
+    this.placeholder = '',
+    this.defaultValue = '',
+  });
+
+  final String key;
+  final String label;
+  final QueryFilterType type;
+  final bool isRequired;
+  final String placeholder;
+  final String defaultValue;
+
+  factory QueryFilterDefinition.fromJson(Map<String, dynamic> json) {
+    final typeValue = (json['type'] ?? '').toString().toLowerCase();
+    final type = switch (typeValue) {
+      'number' => QueryFilterType.number,
+      'date' => QueryFilterType.date,
+      _ => QueryFilterType.text,
+    };
+
+    return QueryFilterDefinition(
+      key: (json['key'] ?? '').toString(),
+      label: (json['label'] ?? '').toString(),
+      type: type,
+      isRequired:
+          json['isRequired'] == true ||
+          json['is_required'] == true ||
+          json['is_required'] == 1 ||
+          '${json['isRequired'] ?? json['is_required'] ?? ''}' == '1',
+      placeholder: (json['placeholder'] ?? '').toString(),
+      defaultValue: (json['defaultValue'] ?? json['default_value'] ?? '')
+          .toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'key': key,
+      'label': label,
+      'type': type.name,
+      'isRequired': isRequired,
+      'placeholder': placeholder,
+      'defaultValue': defaultValue,
+    };
+  }
+
+  QueryFilterDefinition copyWith({
+    String? key,
+    String? label,
+    QueryFilterType? type,
+    bool? isRequired,
+    String? placeholder,
+    String? defaultValue,
+  }) {
+    return QueryFilterDefinition(
+      key: key ?? this.key,
+      label: label ?? this.label,
+      type: type ?? this.type,
+      isRequired: isRequired ?? this.isRequired,
+      placeholder: placeholder ?? this.placeholder,
+      defaultValue: defaultValue ?? this.defaultValue,
     );
   }
 }

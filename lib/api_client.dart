@@ -76,10 +76,12 @@ class ApiClient {
   Future<ReportResult> runReport({
     required int serverId,
     required int queryId,
+    Map<String, String> filters = const {},
   }) async {
     final body = await _postJson('/api/reporting/run', {
       'serverId': serverId,
       'queryId': queryId,
+      'filters': filters,
     });
     return ReportResult.fromJson(body);
   }

@@ -8,7 +8,10 @@ plugins {
 android {
     namespace = "com.example.vitalpro"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Flutter 3.41 resolves to NDK 28.2 on this machine, but that install is
+    // incomplete and missing the CMake Android toolchain file. Pin to a
+    // verified local NDK so Android debug builds can configure native glue.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

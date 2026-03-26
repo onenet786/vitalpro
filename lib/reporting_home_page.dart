@@ -12,17 +12,19 @@ import 'api_client.dart';
 import 'report_models.dart';
 import 'vitalpro_logo.dart';
 
-enum _AppSection { reporting, admin }
+enum HomeMode { reporting, admin }
 
 class ReportingHomePage extends StatefulWidget {
   const ReportingHomePage({
     super.key,
     required this.session,
     required this.onLogout,
+    required this.homeMode,
   });
 
   final AuthSession session;
   final VoidCallback onLogout;
+  final HomeMode homeMode;
 
   @override
   State<ReportingHomePage> createState() => _ReportingHomePageState();
@@ -43,7 +45,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   final _queryNameController = TextEditingController();
   final _queryTextController = TextEditingController();
 
-  _AppSection _currentSection = _AppSection.reporting;
+  final Map<String, TextEditingController> _reportFilterControllers = {};
+  List<_EditableQueryFilter> _queryFilters = [];
   AuthenticationMode _serverAuthenticationMode = AuthenticationMode.sqlServer;
   bool _showChart = false;
   bool _isLoading = true;
@@ -63,7 +66,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   String get _apiBaseUrl => dotenv.env['API_BASE_URL'] ?? '';
 
-  bool get _isAdminUser => widget.session.user.isAdmin;
+  bool get _isAdminUser => widget.homeMode == HomeMode.admin;
 
   ApiClient get _apiClient => ApiClient(
     baseUrl: _apiBaseUrl,
@@ -107,6 +110,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     _serverPasswordController.dispose();
     _queryNameController.dispose();
     _queryTextController.dispose();
+    _disposeQueryFilters(_queryFilters);
+    for (final controller in _reportFilterControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -117,7 +124,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     try {
       final healthMessage = await _apiClient.fetchHealthMessage();
-      final bootstrap = _currentSection == _AppSection.admin && _isAdminUser
+      final bootstrap = _isAdminUser
           ? await _apiClient.fetchAdminBootstrap()
           : await _apiClient.fetchReportingBootstrap();
       final preferences = await SharedPreferences.getInstance();
@@ -130,6 +137,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       );
       final nextQueryId = _resolveQuerySelection(bootstrap.queries);
       final selectedQuery = _findQueryById(bootstrap.queries, nextQueryId);
+      _syncReportFilterControllers(selectedQuery);
 
       if (!mounted) {
         return;
@@ -223,6 +231,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   void _onQueryChanged(int? queryId) {
     final query = _findQueryById(_queries, queryId);
+    _syncReportFilterControllers(query);
     setState(() {
       _selectedQueryId = queryId;
       _showChart = query?.showChartByDefault ?? false;
@@ -230,12 +239,57 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     });
   }
 
+  void _syncReportFilterControllers(SavedQuery? query) {
+    final activeKeys = <String>{};
+    for (final filter in query?.filters ?? const <QueryFilterDefinition>[]) {
+      activeKeys.add(filter.key);
+      final controller = _reportFilterControllers.putIfAbsent(
+        filter.key,
+        () => TextEditingController(),
+      );
+      if (controller.text.trim().isEmpty && filter.defaultValue.trim().isNotEmpty) {
+        controller.text = filter.defaultValue.trim();
+      }
+    }
+
+    final staleKeys = _reportFilterControllers.keys
+        .where((key) => !activeKeys.contains(key))
+        .toList(growable: false);
+    for (final key in staleKeys) {
+      _reportFilterControllers.remove(key)?.dispose();
+    }
+  }
+
+  Map<String, String> _collectReportFilters(SavedQuery? query) {
+    final values = <String, String>{};
+    if (query == null) {
+      return values;
+    }
+
+    for (final filter in query.filters) {
+      final text = _reportFilterControllers[filter.key]?.text.trim() ?? '';
+      if (text.isNotEmpty) {
+        values[filter.key] = text;
+      }
+    }
+    return values;
+  }
+
   Future<void> _runReport() async {
     final serverId = _selectedServerId;
     final queryId = _selectedQueryId;
+    final query = _selectedQuery;
     if (serverId == null || queryId == null) {
       _showSnack('Select one SQL server and one saved query first.');
       return;
+    }
+
+    for (final filter in query?.filters ?? const <QueryFilterDefinition>[]) {
+      final value = _reportFilterControllers[filter.key]?.text.trim() ?? '';
+      if (filter.isRequired && value.isEmpty) {
+        _showSnack('${filter.label} is required.');
+        return;
+      }
     }
 
     setState(() {
@@ -247,6 +301,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       final result = await _apiClient.runReport(
         serverId: serverId,
         queryId: queryId,
+        filters: _collectReportFilters(query),
       );
       if (!mounted) {
         return;
@@ -267,28 +322,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _statusMessage = 'Could not run report. Details: $error';
       });
     }
-  }
-
-  Future<void> _handleSectionChange(int index) async {
-    if (index == 0) {
-      setState(() {
-        _currentSection = _AppSection.reporting;
-      });
-      return;
-    }
-
-    if (!_isAdminUser) {
-      _showSnack('Your account does not have admin access.');
-      return;
-    }
-
-    setState(() {
-      _currentSection = _AppSection.admin;
-    });
-
-    _resetServerForm();
-    _resetQueryForm();
-    await _loadBootstrap();
   }
 
   Future<void> _saveCompanyProfile() async {
@@ -435,6 +468,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       return;
     }
 
+    final filterDefinitions = _queryFilters
+        .map((filter) => filter.toDefinition())
+        .toList(growable: false);
+    final seenKeys = <String>{};
+    for (final filter in filterDefinitions) {
+      if (filter.key.isEmpty || filter.label.isEmpty) {
+        _showSnack('Each query filter needs both a key and a label.');
+        return;
+      }
+      if (!seenKeys.add(filter.key.toLowerCase())) {
+        _showSnack('Each query filter key must be unique.');
+        return;
+      }
+    }
+
     setState(() {
       _isBusy = true;
       _statusMessage = _editingQueryId == null
@@ -449,6 +497,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           queryName: _queryNameController.text.trim(),
           queryText: _queryTextController.text.trim(),
           showChartByDefault: _showQueryChartByDefault,
+          filters: filterDefinitions,
         ),
       );
       if (!mounted) {
@@ -540,9 +589,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _loadQueryForEditing(SavedQuery query) {
     _queryNameController.text = query.queryName;
     _queryTextController.text = query.queryText;
+    _disposeQueryFilters(_queryFilters);
     setState(() {
       _editingQueryId = query.id;
       _showQueryChartByDefault = query.showChartByDefault;
+      _queryFilters = query.filters
+          .map((filter) => _EditableQueryFilter.fromDefinition(filter))
+          .toList();
     });
   }
 
@@ -563,10 +616,68 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _resetQueryForm() {
     _queryNameController.clear();
     _queryTextController.clear();
+    _disposeQueryFilters(_queryFilters);
     setState(() {
       _editingQueryId = null;
       _showQueryChartByDefault = false;
+      _queryFilters = [];
     });
+  }
+
+  void _addQueryFilter() {
+    setState(() {
+      _queryFilters = [
+        ..._queryFilters,
+        _EditableQueryFilter(
+          key: 'DocumentDate',
+          label: 'Document Date',
+          type: QueryFilterType.date,
+          isRequired: false,
+          placeholder: 'YYYY-MM-DD',
+        ),
+      ];
+    });
+  }
+
+  void _removeQueryFilter(int index) {
+    final removed = _queryFilters[index];
+    setState(() {
+      _queryFilters = List<_EditableQueryFilter>.from(_queryFilters)
+        ..removeAt(index);
+    });
+    removed.dispose();
+  }
+
+  void _disposeQueryFilters(List<_EditableQueryFilter> filters) {
+    for (final filter in filters) {
+      filter.dispose();
+    }
+  }
+
+  Future<void> _pickDateFilterValue(QueryFilterDefinition filter) async {
+    final controller = _reportFilterControllers[filter.key];
+    if (controller == null) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final currentValue = controller.text.trim();
+    final initialDate = DateTime.tryParse(currentValue) ?? now;
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+    if (selectedDate == null) {
+      return;
+    }
+
+    final month = selectedDate.month.toString().padLeft(2, '0');
+    final day = selectedDate.day.toString().padLeft(2, '0');
+    controller.text = '${selectedDate.year}-$month-$day';
+    setState(() {});
   }
 
   void _handleAdminFailure(String message) {
@@ -727,10 +838,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _currentSection == _AppSection.reporting
+    final title = widget.homeMode == HomeMode.reporting
         ? 'VitalPro Reporting'
-        : 'Admin Panel';
-    final showAdminTab = _isAdminUser;
+        : 'VitalPro Admin';
 
     return Scaffold(
       appBar: AppBar(
@@ -760,28 +870,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : _currentSection == _AppSection.reporting
+            : widget.homeMode == HomeMode.reporting
             ? _buildReportingSection()
             : _buildAdminSection(),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: showAdminTab && _currentSection == _AppSection.admin
-            ? 1
-            : 0,
-        onDestinationSelected: _handleSectionChange,
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
-            label: 'Reports',
-          ),
-          if (showAdminTab)
-            const NavigationDestination(
-              icon: Icon(Icons.admin_panel_settings_outlined),
-              selectedIcon: Icon(Icons.admin_panel_settings),
-              label: 'Admin',
-            ),
-        ],
       ),
     );
   }
@@ -1027,6 +1118,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 fillColor: Colors.white,
               ),
             ),
+            if (selectedQuery != null && selectedQuery.filters.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              ...selectedQuery.filters.map(_buildReportFilterInput),
+            ],
             const SizedBox(height: 16),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -1462,9 +1557,41 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             _buildTextField(
               controller: _queryTextController,
               label: 'SQL query',
-              hint: 'SELECT * FROM products',
+              hint: 'SELECT * FROM products WHERE DocumentDate = {{DocumentDate}}',
               maxLines: 8,
             ),
+            const SizedBox(height: 12),
+            _buildStatusBanner(
+              'Use placeholders like {{DocumentDate}} inside the SQL. The reporting screen will show matching filter fields above Run Report.',
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Query Filters',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isBusy ? null : _addQueryFilter,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add Filter'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_queryFilters.isEmpty)
+              _buildEmptyMessage(
+                'No filters added yet. Example: add a date filter with key DocumentDate and use {{DocumentDate}} in the SQL.',
+              )
+            else
+              ...List.generate(
+                _queryFilters.length,
+                (index) => _buildQueryFilterEditor(index, _queryFilters[index]),
+              ),
             const SizedBox(height: 8),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -1573,12 +1700,176 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             ? 'Chart default: enabled'
                             : 'Chart default: disabled',
                       ),
+                      if (query.filters.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: query.filters
+                              .map(
+                                (filter) => Chip(
+                                  label: Text(
+                                    '${filter.label} (${filter.type.name})',
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildReportFilterInput(QueryFilterDefinition filter) {
+    final controller = _reportFilterControllers.putIfAbsent(
+      filter.key,
+      () => TextEditingController(text: filter.defaultValue),
+    );
+
+    final label = filter.isRequired ? '${filter.label} *' : filter.label;
+
+    if (filter.type == QueryFilterType.date) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextField(
+          controller: controller,
+          readOnly: true,
+          onTap: () => _pickDateFilterValue(filter),
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: filter.placeholder.isEmpty
+                ? 'YYYY-MM-DD'
+                : filter.placeholder,
+            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.white,
+            suffixIcon: IconButton(
+              tooltip: 'Pick date',
+              onPressed: () => _pickDateFilterValue(filter),
+              icon: const Icon(Icons.calendar_today_outlined),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: filter.type == QueryFilterType.number
+            ? const TextInputType.numberWithOptions(decimal: true, signed: true)
+            : TextInputType.text,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: filter.placeholder,
+          border: const OutlineInputBorder(),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQueryFilterEditor(int index, _EditableQueryFilter filter) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Filter ${index + 1}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove filter',
+                onPressed: _isBusy ? null : () => _removeQueryFilter(index),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: filter.keyController,
+            label: 'Filter key',
+            hint: 'DocumentDate',
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: filter.labelController,
+            label: 'Filter label',
+            hint: 'Document Date',
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<QueryFilterType>(
+            initialValue: filter.type,
+            items: QueryFilterType.values
+                .map(
+                  (type) => DropdownMenuItem<QueryFilterType>(
+                    value: type,
+                    child: Text(type.name),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              final nextFilter = filter.copyWith(type: value);
+              setState(() {
+                _queryFilters[index] = nextFilter;
+              });
+              filter.dispose();
+            },
+            decoration: const InputDecoration(
+              labelText: 'Filter type',
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: filter.placeholderController,
+            label: 'Placeholder',
+            hint: filter.type == QueryFilterType.date ? 'YYYY-MM-DD' : 'Optional hint',
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: filter.defaultValueController,
+            label: 'Default value',
+            hint: filter.type == QueryFilterType.date ? '2026-02-09' : 'Optional default',
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: filter.isRequired,
+            onChanged: (value) {
+              final nextFilter = filter.copyWith(
+                isRequired: value ?? false,
+              );
+              setState(() {
+                _queryFilters[index] = nextFilter;
+              });
+              filter.dispose();
+            },
+            title: const Text('Required filter'),
+          ),
+        ],
       ),
     );
   }
@@ -1910,4 +2201,68 @@ class _ChartPoint {
 
   final String label;
   final double value;
+}
+
+class _EditableQueryFilter {
+  _EditableQueryFilter({
+    String key = '',
+    String label = '',
+    this.type = QueryFilterType.text,
+    this.isRequired = false,
+    String placeholder = '',
+    String defaultValue = '',
+  })  : keyController = TextEditingController(text: key),
+        labelController = TextEditingController(text: label),
+        placeholderController = TextEditingController(text: placeholder),
+        defaultValueController = TextEditingController(text: defaultValue);
+
+  factory _EditableQueryFilter.fromDefinition(QueryFilterDefinition filter) {
+    return _EditableQueryFilter(
+      key: filter.key,
+      label: filter.label,
+      type: filter.type,
+      isRequired: filter.isRequired,
+      placeholder: filter.placeholder,
+      defaultValue: filter.defaultValue,
+    );
+  }
+
+  final TextEditingController keyController;
+  final TextEditingController labelController;
+  final TextEditingController placeholderController;
+  final TextEditingController defaultValueController;
+  final QueryFilterType type;
+  final bool isRequired;
+
+  _EditableQueryFilter copyWith({
+    QueryFilterType? type,
+    bool? isRequired,
+  }) {
+    return _EditableQueryFilter(
+      key: keyController.text,
+      label: labelController.text,
+      type: type ?? this.type,
+      isRequired: isRequired ?? this.isRequired,
+      placeholder: placeholderController.text,
+      defaultValue: defaultValueController.text,
+    );
+  }
+
+  QueryFilterDefinition toDefinition() {
+    return QueryFilterDefinition(
+      key: keyController.text.trim(),
+      label: labelController.text.trim(),
+      type: type,
+      isRequired: isRequired,
+      placeholder: placeholderController.text.trim(),
+      defaultValue: defaultValueController.text.trim(),
+    );
+  }
+
+  void dispose() {
+    keyController.dispose();
+    labelController.dispose();
+    placeholderController.dispose();
+    defaultValueController.dispose();
+  }
 }
