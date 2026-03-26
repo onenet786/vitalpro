@@ -14,7 +14,7 @@ import 'vitalpro_logo.dart';
 
 enum HomeMode { reporting, admin }
 
-enum AdminPanelSection { dashboard, company, users, servers, queries }
+enum AdminPanelSection { dashboard, companies, users, servers, queries }
 
 class ReportingHomePage extends StatefulWidget {
   const ReportingHomePage({
@@ -48,7 +48,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   final _queryTextController = TextEditingController();
   final _userUsernameController = TextEditingController();
   final _userPasswordController = TextEditingController();
-  final _userBranchController = TextEditingController();
 
   final Map<String, TextEditingController> _reportFilterControllers = {};
   List<_EditableQueryFilter> _queryFilters = [];
@@ -64,12 +63,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   AdminPanelSection _adminSection = AdminPanelSection.dashboard;
   String? _statusMessage;
   String? _healthMessage;
+  int? _editingCompanyId;
+  int? _selectedAssignedCompanyId;
   int? _selectedServerId;
   int? _selectedQueryId;
   int? _editingServerId;
   int? _editingQueryId;
   int? _editingUserId;
   CompanyProfile _companyProfile = const CompanyProfile();
+  List<CompanyProfile> _companies = const [];
   List<ReportingServer> _servers = const [];
   List<SavedQuery> _queries = const [];
   List<AppUser> _users = const [];
@@ -121,7 +123,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     _queryTextController.dispose();
     _userUsernameController.dispose();
     _userPasswordController.dispose();
-    _userBranchController.dispose();
     _disposeQueryFilters(_queryFilters);
     for (final controller in _reportFilterControllers.values) {
       controller.dispose();
@@ -157,6 +158,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
       setState(() {
         _companyProfile = bootstrap.companyProfile;
+        _companies = bootstrap.companies;
         _servers = bootstrap.servers;
         _queries = bootstrap.queries;
         _users = bootstrap.users;
@@ -172,9 +174,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _isLoading = false;
       });
 
-      _companyNameController.text = _companyProfile.companyName;
-      _companyAddressController.text = _companyProfile.companyAddress;
-      _companyLogoController.text = _companyProfile.companyLogoUrl;
+      if (_isAdminUser && _editingCompanyId == null) {
+        _resetCompanyForm();
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -340,14 +342,22 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Future<void> _saveCompanyProfile() async {
+    if (_companyNameController.text.trim().isEmpty) {
+      _showSnack('Company name is required.');
+      return;
+    }
+
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Saving company profile...';
+      _statusMessage = _editingCompanyId == null
+          ? 'Creating company...'
+          : 'Updating company...';
     });
 
     try {
       final result = await _apiClient.saveCompanyProfile(
         CompanyProfile(
+          id: _editingCompanyId,
           companyName: _companyNameController.text.trim(),
           companyAddress: _companyAddressController.text.trim(),
           companyLogoUrl: _companyLogoController.text.trim(),
@@ -362,10 +372,66 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _statusMessage = result.message;
       });
 
+      _resetCompanyForm();
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not save company profile. Details: $error');
+      _handleAdminFailure('Could not save company. Details: $error');
+    }
+  }
+
+  Future<void> _deleteCompany(CompanyProfile company) async {
+    if (company.id == null) {
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Company'),
+          content: Text('Delete ${company.companyName} from saved companies?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+      _statusMessage = 'Deleting company...';
+    });
+
+    try {
+      final result = await _apiClient.deleteCompany(company.id!);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isBusy = false;
+        _statusMessage = result.message;
+      });
+
+      if (_editingCompanyId == company.id) {
+        _resetCompanyForm();
+      }
+      await _loadBootstrap();
+      _showSnack(result.message);
+    } catch (error) {
+      _handleAdminFailure('Could not delete company. Details: $error');
     }
   }
 
@@ -613,7 +679,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           password: _userPasswordController.text,
           role: _userRole,
           isActive: _userIsActive,
-          assignedBranch: _userBranchController.text.trim(),
+          assignedCompanyId: _selectedAssignedCompanyId,
         ),
       );
       if (!mounted) {
@@ -714,12 +780,30 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _loadUserForEditing(AppUser user) {
     _userUsernameController.text = user.username;
     _userPasswordController.clear();
-    _userBranchController.text = user.assignedBranch;
     setState(() {
       _editingUserId = user.id;
       _userRole = user.role;
+      _selectedAssignedCompanyId = user.assignedCompanyId;
       _userIsActive = user.isActive;
       _isUserPasswordVisible = false;
+    });
+  }
+
+  void _loadCompanyForEditing(CompanyProfile company) {
+    _companyNameController.text = company.companyName;
+    _companyAddressController.text = company.companyAddress;
+    _companyLogoController.text = company.companyLogoUrl;
+    setState(() {
+      _editingCompanyId = company.id;
+    });
+  }
+
+  void _resetCompanyForm() {
+    _companyNameController.clear();
+    _companyAddressController.clear();
+    _companyLogoController.clear();
+    setState(() {
+      _editingCompanyId = null;
     });
   }
 
@@ -751,10 +835,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _resetUserForm() {
     _userUsernameController.clear();
     _userPasswordController.clear();
-    _userBranchController.clear();
     setState(() {
       _editingUserId = null;
       _userRole = UserRole.reporting;
+      _selectedAssignedCompanyId = null;
       _userIsActive = true;
       _isUserPasswordVisible = false;
     });
@@ -1043,8 +1127,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     switch (_adminSection) {
       case AdminPanelSection.dashboard:
         return 'VitalPro Admin';
-      case AdminPanelSection.company:
-        return 'Admin - Company';
+      case AdminPanelSection.companies:
+        return 'Admin - Companies';
       case AdminPanelSection.users:
         return 'Admin - Users';
       case AdminPanelSection.servers:
@@ -1058,8 +1142,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     switch (section) {
       case AdminPanelSection.dashboard:
         return 'Dashboard';
-      case AdminPanelSection.company:
-        return 'Company';
+      case AdminPanelSection.companies:
+        return 'Companies';
       case AdminPanelSection.users:
         return 'Users';
       case AdminPanelSection.servers:
@@ -1073,7 +1157,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     switch (section) {
       case AdminPanelSection.dashboard:
         return Icons.space_dashboard_outlined;
-      case AdminPanelSection.company:
+      case AdminPanelSection.companies:
         return Icons.business_outlined;
       case AdminPanelSection.users:
         return Icons.people_alt_outlined;
@@ -1568,15 +1652,17 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           const SizedBox(height: 20),
           _buildAdminOverviewCard(),
         ];
-      case AdminPanelSection.company:
+      case AdminPanelSection.companies:
         return [
           _buildAdminPageIntro(
-            title: 'Company Setup',
+            title: 'Companies & Clients',
             description:
-                'Manage client identity details used across the reporting workspace.',
+                'Add multiple client companies and maintain each client profile separately.',
           ),
           const SizedBox(height: 20),
           _buildCompanyAdminCard(),
+          const SizedBox(height: 20),
+          _buildSavedCompaniesCard(),
         ];
       case AdminPanelSection.users:
         return [
@@ -1679,9 +1765,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Widget _buildAdminHeader() {
-    final companyName = _companyProfile.companyName.trim().isEmpty
-        ? 'Client profile pending'
-        : _companyProfile.companyName;
+    final companyName = _companies.isEmpty
+        ? 'No client companies yet'
+        : '${_companies.length} client companies';
 
     return Container(
       decoration: BoxDecoration(
@@ -1755,7 +1841,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   const SizedBox(height: 12),
                   _buildHeroMetaRow(
                     icon: Icons.people_alt_outlined,
-                    text: '${_users.length} active admin records',
+                    text: '${_users.length} user accounts available',
                   ),
                   const SizedBox(height: 8),
                   _buildHeroMetaRow(
@@ -1856,13 +1942,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   runSpacing: 16,
                   children: [
                     _buildOverviewStatCard(
-                      label: 'Company Profile',
-                      value: _companyProfile.companyName.trim().isEmpty
-                          ? 'Not configured'
-                          : _companyProfile.companyName,
-                      caption: _companyProfile.companyAddress.trim().isEmpty
-                          ? 'Client identity details still need attention.'
-                          : 'Brand identity and reporting address are available.',
+                      label: 'Client Companies',
+                      value: '${_companies.length}',
+                      caption: _companies.isEmpty
+                          ? 'No client companies have been added yet.'
+                          : 'Client records are available for assignment and reporting.',
                       icon: Icons.business_outlined,
                       accent: const Color(0xFFE8F1F8),
                       width: tileWidth,
@@ -2029,8 +2113,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             children: [
               _buildDashboardActionButton(
                 icon: Icons.business_outlined,
-                label: 'Edit Company',
-                section: AdminPanelSection.company,
+                label: 'Manage Companies',
+                section: AdminPanelSection.companies,
                 isPrimary: true,
               ),
               _buildDashboardActionButton(
@@ -2084,10 +2168,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildAdminOperationsPanel() {
     final readinessItems = [
-      (
-        title: 'Company identity',
-        ready: _companyProfile.companyName.trim().isNotEmpty,
-      ),
+      (title: 'Client companies', ready: _companies.isNotEmpty),
       (title: 'User access', ready: _users.isNotEmpty),
       (title: 'SQL connectivity', ready: _servers.isNotEmpty),
       (title: 'Query library', ready: _queries.isNotEmpty),
@@ -2218,7 +2299,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Client Company',
+              'Company Profile',
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -2243,11 +2324,99 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               hint: 'https://example.com/logo.png',
             ),
             const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _isBusy ? null : _saveCompanyProfile,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save Company Details'),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: _isBusy ? null : _saveCompanyProfile,
+                  icon: Icon(
+                    _editingCompanyId == null
+                        ? Icons.add_business_outlined
+                        : Icons.save_outlined,
+                  ),
+                  label: Text(
+                    _editingCompanyId == null
+                        ? 'Create Company'
+                        : 'Update Company',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isBusy ? null : _resetCompanyForm,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Clear'),
+                ),
+              ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSavedCompaniesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Saved Companies',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+            if (_companies.isEmpty)
+              _buildEmptyMessage('No client companies saved yet.')
+            else
+              ..._companies.map(
+                (company) => Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFD8E2EC)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              company.companyName.trim().isEmpty
+                                  ? 'Unnamed company'
+                                  : company.companyName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Edit company',
+                            onPressed: () => _loadCompanyForEditing(company),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete company',
+                            onPressed: () => _deleteCompany(company),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        company.companyAddress.trim().isEmpty
+                            ? 'No company address saved.'
+                            : company.companyAddress,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -2389,10 +2558,34 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               hint: 'saleuser',
             ),
             const SizedBox(height: 16),
-            _buildTextField(
-              controller: _userBranchController,
-              label: 'Assigned branch',
-              hint: 'Lahore Branch',
+            DropdownButtonFormField<int?>(
+              key: ValueKey(_selectedAssignedCompanyId),
+              initialValue: _selectedAssignedCompanyId,
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('Unassigned'),
+                ),
+                ..._companies
+                    .where((company) => company.id != null)
+                    .map(
+                      (company) => DropdownMenuItem<int?>(
+                        value: company.id,
+                        child: Text(company.companyName),
+                      ),
+                    ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedAssignedCompanyId = value;
+                });
+              },
+              decoration: const InputDecoration(
+                labelText: 'Assigned company',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+              ),
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -2539,7 +2732,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       Text('Role: ${user.role.name}'),
                       const SizedBox(height: 4),
                       Text(
-                        'Assigned branch: ${user.assignedBranch.trim().isEmpty ? 'Unassigned' : user.assignedBranch}',
+                        'Assigned company: ${user.assignedCompanyName.trim().isEmpty ? 'Unassigned' : user.assignedCompanyName}',
                       ),
                       const SizedBox(height: 4),
                       Text(

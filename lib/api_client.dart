@@ -43,16 +43,17 @@ class ApiClient {
   }
 
   Future<MessageResult> saveCompanyProfile(CompanyProfile profile) async {
-    final body = await _postJson('/api/admin/settings', {
-      ...profile.toJson(),
-    });
+    final body = await _postJson('/api/admin/companies', {...profile.toJson()});
+    return MessageResult.fromJson(body);
+  }
+
+  Future<MessageResult> deleteCompany(int id) async {
+    final body = await _deleteJson('/api/admin/companies/$id', const {});
     return MessageResult.fromJson(body);
   }
 
   Future<MessageResult> saveServer(ReportingServer server) async {
-    final body = await _postJson('/api/admin/servers', {
-      ...server.toJson(),
-    });
+    final body = await _postJson('/api/admin/servers', {...server.toJson()});
     return MessageResult.fromJson(body);
   }
 
@@ -62,9 +63,7 @@ class ApiClient {
   }
 
   Future<MessageResult> saveQuery(SavedQuery query) async {
-    final body = await _postJson('/api/admin/queries', {
-      ...query.toJson(),
-    });
+    final body = await _postJson('/api/admin/queries', {...query.toJson()});
     return MessageResult.fromJson(body);
   }
 
@@ -102,10 +101,7 @@ class ApiClient {
       throw Exception('API connection is not configured.');
     }
 
-    return _sendRequest(
-      uri,
-      () => http.get(uri, headers: _buildHeaders()),
-    );
+    return _sendRequest(uri, () => http.get(uri, headers: _buildHeaders()));
   }
 
   Future<Map<String, dynamic>> _postJson(

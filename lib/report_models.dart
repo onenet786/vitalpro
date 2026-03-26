@@ -15,14 +15,16 @@ class AppUser {
     required this.id,
     required this.username,
     required this.role,
-    this.assignedBranch = '',
+    this.assignedCompanyId,
+    this.assignedCompanyName = '',
     this.isActive = true,
   });
 
   final int id;
   final String username;
   final UserRole role;
-  final String assignedBranch;
+  final int? assignedCompanyId;
+  final String assignedCompanyName;
   final bool isActive;
 
   bool get isAdmin => role == UserRole.admin;
@@ -34,8 +36,16 @@ class AppUser {
           : int.tryParse('${json['id'] ?? ''}') ?? 0,
       username: (json['username'] ?? '').toString(),
       role: _parseUserRole(json['role']),
-      assignedBranch: (json['assignedBranch'] ?? json['assigned_branch'] ?? '')
-          .toString(),
+      assignedCompanyId: json['assignedCompanyId'] is int
+          ? json['assignedCompanyId'] as int
+          : json['assigned_company_id'] is int
+          ? json['assigned_company_id'] as int
+          : int.tryParse(
+              '${json['assignedCompanyId'] ?? json['assigned_company_id'] ?? ''}',
+            ),
+      assignedCompanyName:
+          (json['assignedCompanyName'] ?? json['assigned_company_name'] ?? '')
+              .toString(),
       isActive:
           json['isActive'] == true ||
           json['is_active'] == true ||
@@ -49,7 +59,8 @@ class AppUser {
       'id': id,
       'username': username,
       'role': role.name,
-      'assignedBranch': assignedBranch,
+      'assignedCompanyId': assignedCompanyId,
+      'assignedCompanyName': assignedCompanyName,
       'isActive': isActive,
     };
   }
@@ -58,14 +69,16 @@ class AppUser {
     int? id,
     String? username,
     UserRole? role,
-    String? assignedBranch,
+    int? assignedCompanyId,
+    String? assignedCompanyName,
     bool? isActive,
   }) {
     return AppUser(
       id: id ?? this.id,
       username: username ?? this.username,
       role: role ?? this.role,
-      assignedBranch: assignedBranch ?? this.assignedBranch,
+      assignedCompanyId: assignedCompanyId ?? this.assignedCompanyId,
+      assignedCompanyName: assignedCompanyName ?? this.assignedCompanyName,
       isActive: isActive ?? this.isActive,
     );
   }
@@ -89,11 +102,13 @@ class AuthSession {
 
 class CompanyProfile {
   const CompanyProfile({
+    this.id,
     this.companyName = '',
     this.companyAddress = '',
     this.companyLogoUrl = '',
   });
 
+  final int? id;
   final String companyName;
   final String companyAddress;
   final String companyLogoUrl;
@@ -104,6 +119,9 @@ class CompanyProfile {
     }
 
     return CompanyProfile(
+      id: json['id'] is int
+          ? json['id'] as int
+          : int.tryParse('${json['id'] ?? ''}'),
       companyName: (json['companyName'] ?? json['company_name'] ?? '')
           .toString(),
       companyAddress: (json['companyAddress'] ?? json['company_address'] ?? '')
@@ -115,6 +133,7 @@ class CompanyProfile {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'companyName': companyName,
       'companyAddress': companyAddress,
       'companyLogoUrl': companyLogoUrl,
@@ -122,11 +141,13 @@ class CompanyProfile {
   }
 
   CompanyProfile copyWith({
+    int? id,
     String? companyName,
     String? companyAddress,
     String? companyLogoUrl,
   }) {
     return CompanyProfile(
+      id: id ?? this.id,
       companyName: companyName ?? this.companyName,
       companyAddress: companyAddress ?? this.companyAddress,
       companyLogoUrl: companyLogoUrl ?? this.companyLogoUrl,
@@ -361,12 +382,14 @@ class ReportingBootstrap {
     required this.companyProfile,
     required this.servers,
     required this.queries,
+    this.companies = const [],
     this.users = const [],
   });
 
   final CompanyProfile companyProfile;
   final List<ReportingServer> servers;
   final List<SavedQuery> queries;
+  final List<CompanyProfile> companies;
   final List<AppUser> users;
 
   factory ReportingBootstrap.fromJson(Map<String, dynamic> json) {
@@ -382,6 +405,11 @@ class ReportingBootstrap {
       queries: (json['queries'] as List<dynamic>? ?? const [])
           .map((item) => SavedQuery.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
+      companies: (json['companies'] as List<dynamic>? ?? const [])
+          .map(
+            (item) => CompanyProfile.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(),
       users: (json['users'] as List<dynamic>? ?? const [])
           .map((item) => AppUser.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
@@ -395,7 +423,7 @@ class AdminUserInput {
     required this.username,
     required this.role,
     required this.isActive,
-    this.assignedBranch = '',
+    this.assignedCompanyId,
     this.password = '',
   });
 
@@ -403,7 +431,7 @@ class AdminUserInput {
   final String username;
   final UserRole role;
   final bool isActive;
-  final String assignedBranch;
+  final int? assignedCompanyId;
   final String password;
 
   Map<String, dynamic> toJson() {
@@ -412,7 +440,7 @@ class AdminUserInput {
       'username': username,
       'role': role.name,
       'isActive': isActive,
-      'assignedBranch': assignedBranch,
+      'assignedCompanyId': assignedCompanyId,
       'password': password,
     };
   }

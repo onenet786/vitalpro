@@ -84,6 +84,18 @@ async function initializeStorage() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id INT NOT NULL AUTO_INCREMENT,
+      company_name VARCHAR(255) NOT NULL,
+      company_address TEXT NULL,
+      company_logo_url TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS reporting_servers (
       id INT NOT NULL AUTO_INCREMENT,
       name VARCHAR(255) NOT NULL,
@@ -118,7 +130,7 @@ async function initializeStorage() {
       username VARCHAR(100) NOT NULL,
       password_hash TEXT NOT NULL,
       role VARCHAR(20) NOT NULL DEFAULT 'reporting',
-      assigned_branch VARCHAR(255) NOT NULL DEFAULT '',
+      assigned_company_id INT NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -145,9 +157,10 @@ async function ensureOptionalSchemaColumns() {
   );
   await ensureColumnExists(
     'app_users',
-    'assigned_branch',
-    "ALTER TABLE app_users ADD COLUMN assigned_branch VARCHAR(255) NOT NULL DEFAULT '' AFTER role",
+    'assigned_company_id',
+    'ALTER TABLE app_users ADD COLUMN assigned_company_id INT NULL AFTER role',
   );
+  await migrateLegacyCompanyProfile();
 }
 
 async function ensureColumnExists(tableName, columnName, alterStatement) {
@@ -165,6 +178,39 @@ async function ensureColumnExists(tableName, columnName, alterStatement) {
   }
 
   await pool.query(alterStatement);
+}
+
+async function migrateLegacyCompanyProfile() {
+  const [companyRows] = await pool.query(
+    'SELECT COUNT(*) AS total FROM companies',
+  );
+  if ((companyRows[0]?.total || 0) > 0) {
+    return;
+  }
+
+  const [rows] = await pool.query(
+    `SELECT company_name, company_address, company_logo_url
+     FROM app_settings
+     WHERE id = 1`,
+  );
+  const row = rows[0];
+  if (!row) {
+    return;
+  }
+
+  const name = String(row.company_name || '').trim();
+  const address = String(row.company_address || '').trim();
+  const logoUrl = String(row.company_logo_url || '').trim();
+
+  if (!name && !address && !logoUrl) {
+    return;
+  }
+
+  await pool.query(
+    `INSERT INTO companies (company_name, company_address, company_logo_url)
+     VALUES (?, ?, ?)`,
+    [name || 'Primary Client', address, logoUrl],
+  );
 }
 
 function sendJson(res, statusCode, payload) {
@@ -279,9 +325,16 @@ async function authenticateUser(username, password) {
   }
 
   const [rows] = await pool.query(
-    `SELECT id, username, password_hash, role, assigned_branch, is_active
-     FROM app_users
-     WHERE username = ?
+    `SELECT u.id,
+            u.username,
+            u.password_hash,
+            u.role,
+            u.assigned_company_id,
+            c.company_name AS assigned_company_name,
+            u.is_active
+     FROM app_users u
+     LEFT JOIN companies c ON c.id = u.assigned_company_id
+     WHERE u.username = ?
      LIMIT 1`,
     [normalizedUsername],
   );
@@ -300,7 +353,8 @@ async function authenticateUser(username, password) {
     id: user.id,
     username: user.username,
     role: normalizeRole(user.role),
-    assignedBranch: user.assigned_branch || '',
+    assignedCompanyId: user.assigned_company_id,
+    assignedCompanyName: user.assigned_company_name || '',
   };
 }
 
@@ -310,6 +364,8 @@ function createSession(user) {
     id: user.id,
     username: user.username,
     role: normalizeRole(user.role),
+    assignedCompanyId: user.assignedCompanyId || null,
+    assignedCompanyName: user.assignedCompanyName || '',
   });
   return token;
 }
@@ -371,6 +427,14 @@ function validateUserPayload(payload) {
   if (!payload.username) missing.push('username');
   if (!payload.role) missing.push('role');
   if (!payload.id && !payload.password) missing.push('password');
+
+  return missing;
+}
+
+function validateCompanyPayload(payload) {
+  const missing = [];
+
+  if (!payload.companyName) missing.push('companyName');
 
   return missing;
 }
@@ -472,18 +536,47 @@ function normalizeCellValue(value) {
   return value;
 }
 
-async function getCompanyProfile() {
+async function listCompanies() {
   const [rows] = await pool.query(
-    `SELECT company_name, company_address, company_logo_url
-     FROM app_settings
-     WHERE id = 1`,
+    `SELECT id, company_name, company_address, company_logo_url
+     FROM companies
+     ORDER BY company_name ASC, id ASC`,
   );
 
-  const row = rows[0] || {};
-  return {
+  return rows.map((row) => ({
+    id: row.id,
     companyName: row.company_name || '',
     companyAddress: row.company_address || '',
     companyLogoUrl: row.company_logo_url || '',
+  }));
+}
+
+async function getCompanyProfileForUser(user) {
+  const assignedCompanyId = user?.assignedCompanyId || user?.assigned_company_id;
+  if (assignedCompanyId) {
+    const [rows] = await pool.query(
+      `SELECT id, company_name, company_address, company_logo_url
+       FROM companies
+       WHERE id = ?
+       LIMIT 1`,
+      [assignedCompanyId],
+    );
+    const row = rows[0];
+    if (row) {
+      return {
+        id: row.id,
+        companyName: row.company_name || '',
+        companyAddress: row.company_address || '',
+        companyLogoUrl: row.company_logo_url || '',
+      };
+    }
+  }
+
+  const companies = await listCompanies();
+  return companies[0] || {
+    companyName: '',
+    companyAddress: '',
+    companyLogoUrl: '',
   };
 }
 
@@ -534,9 +627,9 @@ function parseFiltersJson(value) {
   }
 }
 
-async function loadReportingBootstrap() {
+async function loadReportingBootstrap(user) {
   return {
-    companyProfile: await getCompanyProfile(),
+    companyProfile: await getCompanyProfileForUser(user),
     servers: await listServers({ includeSecrets: false }),
     queries: await listQueries({ includeSql: false }),
   };
@@ -544,7 +637,12 @@ async function loadReportingBootstrap() {
 
 async function loadAdminBootstrap() {
   return {
-    companyProfile: await getCompanyProfile(),
+    companyProfile: (await listCompanies())[0] || {
+      companyName: '',
+      companyAddress: '',
+      companyLogoUrl: '',
+    },
+    companies: await listCompanies(),
     servers: await listServers({ includeSecrets: true }),
     queries: await listQueries({ includeSql: true }),
     users: await listUsers(),
@@ -553,33 +651,68 @@ async function loadAdminBootstrap() {
 
 async function listUsers() {
   const [rows] = await pool.query(
-    `SELECT id, username, role, assigned_branch, is_active
-     FROM app_users
-     ORDER BY username ASC, id ASC`,
+    `SELECT u.id,
+            u.username,
+            u.role,
+            u.assigned_company_id,
+            c.company_name AS assigned_company_name,
+            u.is_active
+     FROM app_users u
+     LEFT JOIN companies c ON c.id = u.assigned_company_id
+     ORDER BY u.username ASC, u.id ASC`,
   );
 
   return rows.map((row) => ({
     id: row.id,
     username: row.username,
     role: normalizeRole(row.role),
-    assignedBranch: row.assigned_branch || '',
+    assignedCompanyId: row.assigned_company_id,
+    assignedCompanyName: row.assigned_company_name || '',
     isActive: !!row.is_active,
   }));
 }
 
-async function saveCompanyProfile(payload) {
+async function saveCompany(payload) {
+  const companyName = String(payload.companyName || '').trim();
+  const companyAddress = String(payload.companyAddress || '').trim();
+  const companyLogoUrl = String(payload.companyLogoUrl || '').trim();
+
+  if (payload.id) {
+    await pool.query(
+      `UPDATE companies
+       SET company_name = ?,
+           company_address = ?,
+           company_logo_url = ?
+       WHERE id = ?`,
+      [companyName, companyAddress, companyLogoUrl, payload.id],
+    );
+    return 'Company updated successfully.';
+  }
+
   await pool.query(
-    `UPDATE app_settings
-     SET company_name = ?,
-         company_address = ?,
-         company_logo_url = ?
-     WHERE id = 1`,
-    [
-      String(payload.companyName || '').trim(),
-      String(payload.companyAddress || '').trim(),
-      String(payload.companyLogoUrl || '').trim(),
-    ],
+    `INSERT INTO companies (company_name, company_address, company_logo_url)
+     VALUES (?, ?, ?)`,
+    [companyName, companyAddress, companyLogoUrl],
   );
+  return 'Company created successfully.';
+}
+
+async function deleteCompany(id) {
+  const [inUseRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM app_users
+     WHERE assigned_company_id = ?`,
+    [id],
+  );
+  if ((inUseRows[0]?.total || 0) > 0) {
+    throw createHttpError(
+      400,
+      'This company is assigned to one or more users. Reassign those users before deleting it.',
+    );
+  }
+
+  const [result] = await pool.query('DELETE FROM companies WHERE id = ?', [id]);
+  return result.affectedRows > 0;
 }
 
 async function saveServer(payload) {
@@ -674,7 +807,9 @@ async function deleteQuery(id) {
 async function saveUser(payload) {
   const username = String(payload.username || '').trim().toLowerCase();
   const role = normalizeRole(payload.role);
-  const assignedBranch = String(payload.assignedBranch || payload.assigned_branch || '').trim();
+  const assignedCompanyId = payload.assignedCompanyId
+    ? parseInt(payload.assignedCompanyId, 10)
+    : null;
   const isActive = toBoolean(payload.isActive) ? 1 : 0;
   const id = payload.id ? parseInt(payload.id, 10) : null;
 
@@ -682,10 +817,10 @@ async function saveUser(payload) {
     const updates = [
       'username = ?',
       'role = ?',
-      'assigned_branch = ?',
+      'assigned_company_id = ?',
       'is_active = ?',
     ];
-    const values = [username, role, assignedBranch, isActive];
+    const values = [username, role, assignedCompanyId, isActive];
 
     if (String(payload.password || '').trim()) {
       updates.push('password_hash = ?');
@@ -703,9 +838,9 @@ async function saveUser(payload) {
   }
 
   await pool.query(
-    `INSERT INTO app_users (username, password_hash, role, assigned_branch, is_active)
+    `INSERT INTO app_users (username, password_hash, role, assigned_company_id, is_active)
      VALUES (?, ?, ?, ?, ?)`,
-    [username, await hashPassword(payload.password), role, assignedBranch, isActive],
+    [username, await hashPassword(payload.password), role, assignedCompanyId, isActive],
   );
   return 'User created successfully.';
 }
@@ -1108,8 +1243,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/reporting/bootstrap') {
-      requireAuth(req);
-      sendJson(res, 200, await loadReportingBootstrap());
+      const { user } = requireAuth(req);
+      sendJson(res, 200, await loadReportingBootstrap(user));
       return;
     }
 
@@ -1120,14 +1255,40 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'POST' && pathname === '/api/admin/settings') {
+    if (req.method === 'POST' && pathname === '/api/admin/companies') {
       const { user } = requireAuth(req);
       requireAdmin(user);
       const payload = await readJsonBody(req);
-      await saveCompanyProfile(payload);
+      const missing = validateCompanyPayload(payload);
+
+      if (missing.length > 0) {
+        throw createHttpError(
+          400,
+          `Missing required company fields: ${missing.join(', ')}`,
+        );
+      }
+
+      const message = await saveCompany(payload);
       sendJson(res, 200, {
         success: true,
-        message: 'Company profile saved successfully.',
+        message,
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE' && pathname.startsWith('/api/admin/companies/')) {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
+      const id = parseInt(pathname.split('/').pop(), 10);
+
+      if (!Number.isFinite(id)) {
+        throw createHttpError(400, 'Invalid company id.');
+      }
+
+      const removed = await deleteCompany(id);
+      sendJson(res, removed ? 200 : 404, {
+        success: removed,
+        message: removed ? 'Company deleted successfully.' : 'Company not found.',
       });
       return;
     }
