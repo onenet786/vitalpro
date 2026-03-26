@@ -768,10 +768,10 @@ async function getUserByUsername(username) {
 
 function formatDateLiteral(value) {
   const normalized = String(value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+  if (!/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(normalized)) {
     throw createHttpError(
       400,
-      `Date filter "${value}" must use YYYY-MM-DD format.`,
+      `Date filter "${value}" must use dd-MMM-yyyy format, for example 09-Feb-2026.`,
     );
   }
 

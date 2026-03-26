@@ -761,7 +761,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           label: 'Document Date',
           type: QueryFilterType.date,
           isRequired: false,
-          placeholder: 'YYYY-MM-DD',
+          placeholder: 'dd-MMM-yyyy',
         ),
       ];
     });
@@ -790,7 +790,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     final now = DateTime.now();
     final currentValue = controller.text.trim();
-    final initialDate = DateTime.tryParse(currentValue) ?? now;
+    final initialDate = _parseQueryDate(currentValue) ?? now;
     final selectedDate = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -802,10 +802,71 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       return;
     }
 
-    final month = selectedDate.month.toString().padLeft(2, '0');
-    final day = selectedDate.day.toString().padLeft(2, '0');
-    controller.text = '${selectedDate.year}-$month-$day';
+    controller.text = _formatQueryDate(selectedDate);
     setState(() {});
+  }
+
+  DateTime? _parseQueryDate(String value) {
+    final match = RegExp(r'^(\d{2})-([A-Za-z]{3})-(\d{4})$').firstMatch(value);
+    if (match == null) {
+      return null;
+    }
+
+    final day = int.tryParse(match.group(1)!);
+    final month = _monthIndex(match.group(2)!);
+    final year = int.tryParse(match.group(3)!);
+    if (day == null || month == null || year == null) {
+      return null;
+    }
+
+    final date = DateTime(year, month, day);
+    if (date.year != year || date.month != month || date.day != day) {
+      return null;
+    }
+    return date;
+  }
+
+  String _formatQueryDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = _monthLabel(date.month);
+    return '$day-$month-${date.year}';
+  }
+
+  int? _monthIndex(String value) {
+    const months = [
+      'jan',
+      'feb',
+      'mar',
+      'apr',
+      'may',
+      'jun',
+      'jul',
+      'aug',
+      'sep',
+      'oct',
+      'nov',
+      'dec',
+    ];
+    final index = months.indexOf(value.toLowerCase());
+    return index == -1 ? null : index + 1;
+  }
+
+  String _monthLabel(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return months[month - 1];
   }
 
   void _handleAdminFailure(String message) {
@@ -1050,10 +1111,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 560;
+            final identityBlock = Container(
               width: 72,
               height: 72,
               decoration: BoxDecoration(
@@ -1077,64 +1138,80 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         showWordmark: false,
                       ),
                     ),
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
+            );
+            final detailsBlock = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _companyProfile.companyName.trim().isEmpty
+                      ? 'Client reporting workspace'
+                      : _companyProfile.companyName,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0A2540),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _companyProfile.companyAddress.trim().isEmpty
+                      ? 'Save the client company name, address, and logo from Admin.'
+                      : _companyProfile.companyAddress,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF4F6478),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFD8E2EC)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'API Status',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF355468),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _healthMessage ??
+                            (_apiBaseUrl.trim().isEmpty
+                                ? 'API connection is not configured.'
+                                : 'API configured.'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+
+            if (isCompact) {
+              return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _companyProfile.companyName.trim().isEmpty
-                        ? 'Client reporting workspace'
-                        : _companyProfile.companyName,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0A2540),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _companyProfile.companyAddress.trim().isEmpty
-                        ? 'Save the client company name, address, and logo from Admin.'
-                        : _companyProfile.companyAddress,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF4F6478),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFD8E2EC)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'API Status',
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF355468),
-                              ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _healthMessage ??
-                              (_apiBaseUrl.trim().isEmpty
-                                  ? 'API connection is not configured.'
-                                  : 'API configured.'),
-                        ),
-                      ],
-                    ),
-                  ),
+                  identityBlock,
+                  const SizedBox(height: 18),
+                  detailsBlock,
                 ],
-              ),
-            ),
-          ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                identityBlock,
+                const SizedBox(width: 18),
+                Expanded(child: detailsBlock),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1209,22 +1286,40 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ),
               ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    selectedServer == null
-                        ? 'Choose a server first.'
-                        : 'Selected server: ${selectedServer.label}',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-                OutlinedButton.icon(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 480;
+                final infoText = Text(
+                  selectedServer == null
+                      ? 'Choose a server first.'
+                      : 'Selected server: ${selectedServer.label}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                );
+                final actionButton = OutlinedButton.icon(
                   onPressed: selectedServer == null ? null : _setDefaultServer,
                   icon: const Icon(Icons.star_outline),
                   label: const Text('Set Default'),
-                ),
-              ],
+                );
+
+                if (isCompact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      infoText,
+                      const SizedBox(height: 12),
+                      actionButton,
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    Expanded(child: infoText),
+                    const SizedBox(width: 12),
+                    actionButton,
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 20),
             DropdownButtonFormField<int>(
@@ -1304,31 +1399,30 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Report Output',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF0A2540),
-                            ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 640;
+                final summary = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Report Output',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF0A2540),
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Table results, chart preview, and PDF actions appear here after a report runs.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF4F6478),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Table results, chart preview, and PDF actions appear here after a report runs.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF4F6478),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Wrap(
+                    ),
+                  ],
+                );
+                final actions = Wrap(
                   spacing: 12,
                   runSpacing: 12,
                   children: [
@@ -1343,8 +1437,28 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       label: const Text('Export PDF'),
                     ),
                   ],
-                ),
-              ],
+                );
+
+                if (isCompact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      summary,
+                      const SizedBox(height: 16),
+                      actions,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: summary),
+                    const SizedBox(width: 16),
+                    actions,
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 20),
             if (result == null)
@@ -2054,7 +2168,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           decoration: InputDecoration(
             labelText: label,
             hintText: filter.placeholder.isEmpty
-                ? 'YYYY-MM-DD'
+                ? 'dd-MMM-yyyy'
                 : filter.placeholder,
             border: const OutlineInputBorder(),
             filled: true,
@@ -2157,13 +2271,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           _buildTextField(
             controller: filter.placeholderController,
             label: 'Placeholder',
-            hint: filter.type == QueryFilterType.date ? 'YYYY-MM-DD' : 'Optional hint',
+            hint: filter.type == QueryFilterType.date ? 'dd-MMM-yyyy' : 'Optional hint',
           ),
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.defaultValueController,
             label: 'Default value',
-            hint: filter.type == QueryFilterType.date ? '2026-02-09' : 'Optional default',
+            hint: filter.type == QueryFilterType.date ? '09-Feb-2026' : 'Optional default',
           ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
