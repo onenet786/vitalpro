@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
@@ -89,8 +90,10 @@ class ApiClient {
       throw Exception('API connection is not configured.');
     }
 
-    final response = await http.get(uri, headers: _buildHeaders());
-    return _decodeResponse(response);
+    return _sendRequest(
+      uri,
+      () => http.get(uri, headers: _buildHeaders()),
+    );
   }
 
   Future<Map<String, dynamic>> _postJson(
@@ -102,12 +105,14 @@ class ApiClient {
       throw Exception('API connection is not configured.');
     }
 
-    final response = await http.post(
+    return _sendRequest(
       uri,
-      headers: _buildHeaders(includeJsonContentType: true),
-      body: jsonEncode(payload),
+      () => http.post(
+        uri,
+        headers: _buildHeaders(includeJsonContentType: true),
+        body: jsonEncode(payload),
+      ),
     );
-    return _decodeResponse(response);
   }
 
   Future<Map<String, dynamic>> _deleteJson(
@@ -119,12 +124,32 @@ class ApiClient {
       throw Exception('API connection is not configured.');
     }
 
-    final response = await http.delete(
+    return _sendRequest(
       uri,
-      headers: _buildHeaders(includeJsonContentType: true),
-      body: jsonEncode(payload),
+      () => http.delete(
+        uri,
+        headers: _buildHeaders(includeJsonContentType: true),
+        body: jsonEncode(payload),
+      ),
     );
-    return _decodeResponse(response);
+  }
+
+  Future<Map<String, dynamic>> _sendRequest(
+    Uri uri,
+    Future<http.Response> Function() request,
+  ) async {
+    try {
+      final response = await request().timeout(const Duration(seconds: 20));
+      return _decodeResponse(response);
+    } on TimeoutException {
+      throw Exception(
+        'Connection to ${uri.toString()} timed out. Check API_BASE_URL, server status, and firewall rules.',
+      );
+    } on http.ClientException catch (error) {
+      throw Exception(
+        'Could not connect to ${uri.toString()}. ${error.message}. Verify API_BASE_URL and that the remote API is reachable from this device.',
+      );
+    }
   }
 
   Map<String, String> _buildHeaders({bool includeJsonContentType = false}) {
