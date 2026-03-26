@@ -15,11 +15,13 @@ class AppUser {
     required this.id,
     required this.username,
     required this.role,
+    this.isActive = true,
   });
 
   final int id;
   final String username;
   final UserRole role;
+  final bool isActive;
 
   bool get isAdmin => role == UserRole.admin;
 
@@ -30,6 +32,34 @@ class AppUser {
           : int.tryParse('${json['id'] ?? ''}') ?? 0,
       username: (json['username'] ?? '').toString(),
       role: _parseUserRole(json['role']),
+      isActive:
+          json['isActive'] == true ||
+          json['is_active'] == true ||
+          json['is_active'] == 1 ||
+          '${json['isActive'] ?? json['is_active'] ?? ''}' == '1',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'username': username,
+      'role': role.name,
+      'isActive': isActive,
+    };
+  }
+
+  AppUser copyWith({
+    int? id,
+    String? username,
+    UserRole? role,
+    bool? isActive,
+  }) {
+    return AppUser(
+      id: id ?? this.id,
+      username: username ?? this.username,
+      role: role ?? this.role,
+      isActive: isActive ?? this.isActive,
     );
   }
 }
@@ -325,11 +355,13 @@ class ReportingBootstrap {
     required this.companyProfile,
     required this.servers,
     required this.queries,
+    this.users = const [],
   });
 
   final CompanyProfile companyProfile;
   final List<ReportingServer> servers;
   final List<SavedQuery> queries;
+  final List<AppUser> users;
 
   factory ReportingBootstrap.fromJson(Map<String, dynamic> json) {
     return ReportingBootstrap(
@@ -342,7 +374,36 @@ class ReportingBootstrap {
       queries: (json['queries'] as List<dynamic>? ?? const [])
           .map((item) => SavedQuery.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
+      users: (json['users'] as List<dynamic>? ?? const [])
+          .map((item) => AppUser.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
     );
+  }
+}
+
+class AdminUserInput {
+  const AdminUserInput({
+    this.id,
+    required this.username,
+    required this.role,
+    required this.isActive,
+    this.password = '',
+  });
+
+  final int? id;
+  final String username;
+  final UserRole role;
+  final bool isActive;
+  final String password;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'username': username,
+      'role': role.name,
+      'isActive': isActive,
+      'password': password,
+    };
   }
 }
 

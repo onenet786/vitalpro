@@ -44,24 +44,31 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   final _serverPasswordController = TextEditingController();
   final _queryNameController = TextEditingController();
   final _queryTextController = TextEditingController();
+  final _userUsernameController = TextEditingController();
+  final _userPasswordController = TextEditingController();
 
   final Map<String, TextEditingController> _reportFilterControllers = {};
   List<_EditableQueryFilter> _queryFilters = [];
   AuthenticationMode _serverAuthenticationMode = AuthenticationMode.sqlServer;
+  UserRole _userRole = UserRole.reporting;
   bool _showChart = false;
   bool _isLoading = true;
   bool _isBusy = false;
   bool _isSqlPasswordVisible = false;
+  bool _isUserPasswordVisible = false;
   bool _showQueryChartByDefault = false;
+  bool _userIsActive = true;
   String? _statusMessage;
   String? _healthMessage;
   int? _selectedServerId;
   int? _selectedQueryId;
   int? _editingServerId;
   int? _editingQueryId;
+  int? _editingUserId;
   CompanyProfile _companyProfile = const CompanyProfile();
   List<ReportingServer> _servers = const [];
   List<SavedQuery> _queries = const [];
+  List<AppUser> _users = const [];
   ReportResult? _reportResult;
 
   String get _apiBaseUrl => dotenv.env['API_BASE_URL'] ?? '';
@@ -110,6 +117,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     _serverPasswordController.dispose();
     _queryNameController.dispose();
     _queryTextController.dispose();
+    _userUsernameController.dispose();
+    _userPasswordController.dispose();
     _disposeQueryFilters(_queryFilters);
     for (final controller in _reportFilterControllers.values) {
       controller.dispose();
@@ -147,6 +156,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _companyProfile = bootstrap.companyProfile;
         _servers = bootstrap.servers;
         _queries = bootstrap.queries;
+        _users = bootstrap.users;
         _healthMessage = healthMessage;
         _selectedServerId = nextServerId;
         _selectedQueryId = nextQueryId;
@@ -572,6 +582,102 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     }
   }
 
+  Future<void> _saveUser() async {
+    if (_userUsernameController.text.trim().isEmpty) {
+      _showSnack('Username is required.');
+      return;
+    }
+
+    if (_editingUserId == null && _userPasswordController.text.isEmpty) {
+      _showSnack('Password is required for a new user.');
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+      _statusMessage = _editingUserId == null
+          ? 'Creating user...'
+          : 'Updating user...';
+    });
+
+    try {
+      final result = await _apiClient.saveUser(
+        AdminUserInput(
+          id: _editingUserId,
+          username: _userUsernameController.text.trim(),
+          password: _userPasswordController.text,
+          role: _userRole,
+          isActive: _userIsActive,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isBusy = false;
+        _statusMessage = result.message;
+      });
+
+      _resetUserForm();
+      await _loadBootstrap();
+      _showSnack(result.message);
+    } catch (error) {
+      _handleAdminFailure('Could not save user. Details: $error');
+    }
+  }
+
+  Future<void> _deleteUser(AppUser user) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete User'),
+          content: Text('Delete ${user.username} from app users?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+      _statusMessage = 'Deleting user...';
+    });
+
+    try {
+      final result = await _apiClient.deleteUser(user.id);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isBusy = false;
+        _statusMessage = result.message;
+      });
+
+      if (_editingUserId == user.id) {
+        _resetUserForm();
+      }
+      await _loadBootstrap();
+      _showSnack(result.message);
+    } catch (error) {
+      _handleAdminFailure('Could not delete user. Details: $error');
+    }
+  }
+
   void _loadServerForEditing(ReportingServer server) {
     _serverNameController.text = server.name;
     _serverHostController.text = server.host;
@@ -599,6 +705,17 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     });
   }
 
+  void _loadUserForEditing(AppUser user) {
+    _userUsernameController.text = user.username;
+    _userPasswordController.clear();
+    setState(() {
+      _editingUserId = user.id;
+      _userRole = user.role;
+      _userIsActive = user.isActive;
+      _isUserPasswordVisible = false;
+    });
+  }
+
   void _resetServerForm() {
     _serverNameController.clear();
     _serverHostController.clear();
@@ -621,6 +738,17 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _editingQueryId = null;
       _showQueryChartByDefault = false;
       _queryFilters = [];
+    });
+  }
+
+  void _resetUserForm() {
+    _userUsernameController.clear();
+    _userPasswordController.clear();
+    setState(() {
+      _editingUserId = null;
+      _userRole = UserRole.reporting;
+      _userIsActive = true;
+      _isUserPasswordVisible = false;
     });
   }
 
@@ -1264,6 +1392,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           const SizedBox(height: 20),
           _buildCompanyAdminCard(),
           const SizedBox(height: 20),
+          _buildUserAdminCard(),
+          const SizedBox(height: 20),
+          _buildSavedUsersCard(),
+          const SizedBox(height: 20),
           _buildServerAdminCard(),
           const SizedBox(height: 20),
           _buildSavedServersCard(),
@@ -1453,6 +1585,184 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserAdminCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'App Users',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildTextField(
+              controller: _userUsernameController,
+              label: 'Username',
+              hint: 'saleuser',
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _userPasswordController,
+              label: _editingUserId == null
+                  ? 'Password'
+                  : 'Password (leave blank to keep current)',
+              hint: _editingUserId == null
+                  ? 'Enter user password'
+                  : 'Optional new password',
+              obscureText: true,
+              isPasswordVisible: _isUserPasswordVisible,
+              onTogglePasswordVisibility: () {
+                setState(() {
+                  _isUserPasswordVisible = !_isUserPasswordVisible;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<UserRole>(
+              initialValue: _userRole,
+              items: UserRole.values
+                  .map(
+                    (role) => DropdownMenuItem<UserRole>(
+                      value: role,
+                      child: Text(role.name),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() {
+                  _userRole = value;
+                });
+              },
+              decoration: const InputDecoration(
+                labelText: 'Role',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _userIsActive,
+              onChanged: (value) {
+                setState(() {
+                  _userIsActive = value ?? true;
+                });
+              },
+              title: const Text('Active account'),
+              subtitle: const Text(
+                'Inactive users cannot sign in until re-enabled.',
+              ),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.icon(
+                  onPressed: _isBusy ? null : _saveUser,
+                  icon: Icon(
+                    _editingUserId == null
+                        ? Icons.person_add_alt_1_outlined
+                        : Icons.save_outlined,
+                  ),
+                  label: Text(
+                    _editingUserId == null ? 'Create User' : 'Update User',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isBusy ? null : _resetUserForm,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Clear'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSavedUsersCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'User Directory',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_users.isEmpty)
+              _buildEmptyMessage('No app users found yet.')
+            else
+              ..._users.map(
+                (user) => Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFD8E2EC)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              user.username,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Edit user',
+                            onPressed: () => _loadUserForEditing(user),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete user',
+                            onPressed: user.id == widget.session.user.id
+                                ? null
+                                : () => _deleteUser(user),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ],
+                      ),
+                      Text('Role: ${user.role.name}'),
+                      const SizedBox(height: 4),
+                      Text(
+                        user.isActive ? 'Status: active' : 'Status: inactive',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),

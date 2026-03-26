@@ -73,6 +73,16 @@ class ApiClient {
     return MessageResult.fromJson(body);
   }
 
+  Future<MessageResult> saveUser(AdminUserInput user) async {
+    final body = await _postJson('/api/admin/users', user.toJson());
+    return MessageResult.fromJson(body);
+  }
+
+  Future<MessageResult> deleteUser(int id) async {
+    final body = await _deleteJson('/api/admin/users/$id', const {});
+    return MessageResult.fromJson(body);
+  }
+
   Future<ReportResult> runReport({
     required int serverId,
     required int queryId,

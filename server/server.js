@@ -358,6 +358,16 @@ function validateQueryPayload(payload) {
   return missing;
 }
 
+function validateUserPayload(payload) {
+  const missing = [];
+
+  if (!payload.username) missing.push('username');
+  if (!payload.role) missing.push('role');
+  if (!payload.id && !payload.password) missing.push('password');
+
+  return missing;
+}
+
 function normalizeFilterDefinitions(filters) {
   if (!Array.isArray(filters)) {
     return [];
@@ -530,7 +540,23 @@ async function loadAdminBootstrap() {
     companyProfile: await getCompanyProfile(),
     servers: await listServers({ includeSecrets: true }),
     queries: await listQueries({ includeSql: true }),
+    users: await listUsers(),
   };
+}
+
+async function listUsers() {
+  const [rows] = await pool.query(
+    `SELECT id, username, role, is_active
+     FROM app_users
+     ORDER BY username ASC, id ASC`,
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    username: row.username,
+    role: normalizeRole(row.role),
+    isActive: !!row.is_active,
+  }));
 }
 
 async function saveCompanyProfile(payload) {
@@ -637,6 +663,48 @@ async function deleteQuery(id) {
   return result.affectedRows > 0;
 }
 
+async function saveUser(payload) {
+  const username = String(payload.username || '').trim().toLowerCase();
+  const role = normalizeRole(payload.role);
+  const isActive = toBoolean(payload.isActive) ? 1 : 0;
+  const id = payload.id ? parseInt(payload.id, 10) : null;
+
+  if (id) {
+    const updates = [
+      'username = ?',
+      'role = ?',
+      'is_active = ?',
+    ];
+    const values = [username, role, isActive];
+
+    if (String(payload.password || '').trim()) {
+      updates.push('password_hash = ?');
+      values.push(await hashPassword(payload.password));
+    }
+
+    values.push(id);
+    await pool.query(
+      `UPDATE app_users
+       SET ${updates.join(', ')}
+       WHERE id = ?`,
+      values,
+    );
+    return 'User updated successfully.';
+  }
+
+  await pool.query(
+    `INSERT INTO app_users (username, password_hash, role, is_active)
+     VALUES (?, ?, ?, ?)`,
+    [username, await hashPassword(payload.password), role, isActive],
+  );
+  return 'User created successfully.';
+}
+
+async function deleteUser(id) {
+  const [result] = await pool.query('DELETE FROM app_users WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
 async function getServerById(id) {
   const [rows] = await pool.query(
     `SELECT id, name, host, port, database_name, authentication_mode, username, password
@@ -684,6 +752,18 @@ async function getQueryById(id) {
     filters: parseFiltersJson(row.filters_json),
     showChartByDefault: !!row.show_chart_default,
   };
+}
+
+async function getUserByUsername(username) {
+  const [rows] = await pool.query(
+    `SELECT id
+     FROM app_users
+     WHERE username = ?
+     LIMIT 1`,
+    [String(username || '').trim().toLowerCase()],
+  );
+
+  return rows[0] || null;
 }
 
 function formatDateLiteral(value) {
@@ -1108,6 +1188,41 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/api/admin/users') {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
+      const payload = await readJsonBody(req);
+      const missing = validateUserPayload(payload);
+
+      if (missing.length > 0) {
+        throw createHttpError(
+          400,
+          `Missing required user fields: ${missing.join(', ')}`,
+        );
+      }
+
+      const normalizedUsername = String(payload.username || '').trim().toLowerCase();
+      if (!/^[a-z0-9._-]{3,100}$/i.test(normalizedUsername)) {
+        throw createHttpError(
+          400,
+          'Username must be 3-100 characters and use letters, numbers, dot, underscore, or hyphen.',
+        );
+      }
+
+      const existingUser = await getUserByUsername(normalizedUsername);
+      const payloadId = payload.id ? parseInt(payload.id, 10) : null;
+      if (existingUser && existingUser.id !== payloadId) {
+        throw createHttpError(400, 'That username is already in use.');
+      }
+
+      const message = await saveUser(payload);
+      sendJson(res, 200, {
+        success: true,
+        message,
+      });
+      return;
+    }
+
     if (req.method === 'DELETE' && pathname.startsWith('/api/admin/queries/')) {
       const { user } = requireAuth(req);
       requireAdmin(user);
@@ -1121,6 +1236,27 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, removed ? 200 : 404, {
         success: removed,
         message: removed ? 'Report query deleted successfully.' : 'Report query not found.',
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE' && pathname.startsWith('/api/admin/users/')) {
+      const { user } = requireAuth(req);
+      requireAdmin(user);
+      const id = parseInt(pathname.split('/').pop(), 10);
+
+      if (!Number.isFinite(id)) {
+        throw createHttpError(400, 'Invalid user id.');
+      }
+
+      if (user.id === id) {
+        throw createHttpError(400, 'You cannot delete the account you are signed in with.');
+      }
+
+      const removed = await deleteUser(id);
+      sendJson(res, removed ? 200 : 404, {
+        success: removed,
+        message: removed ? 'User deleted successfully.' : 'User not found.',
       });
       return;
     }
