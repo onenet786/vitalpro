@@ -14,6 +14,8 @@ import 'vitalpro_logo.dart';
 
 enum HomeMode { reporting, admin }
 
+enum AdminPanelSection { dashboard, company, users, servers, queries }
+
 class ReportingHomePage extends StatefulWidget {
   const ReportingHomePage({
     super.key,
@@ -58,6 +60,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   bool _isUserPasswordVisible = false;
   bool _showQueryChartByDefault = false;
   bool _userIsActive = true;
+  AdminPanelSection _adminSection = AdminPanelSection.dashboard;
   String? _statusMessage;
   String? _healthMessage;
   int? _selectedServerId;
@@ -75,10 +78,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   bool get _isAdminUser => widget.homeMode == HomeMode.admin;
 
-  ApiClient get _apiClient => ApiClient(
-    baseUrl: _apiBaseUrl,
-    authToken: widget.session.token,
-  );
+  ApiClient get _apiClient =>
+      ApiClient(baseUrl: _apiBaseUrl, authToken: widget.session.token);
 
   ReportingServer? get _selectedServer {
     for (final server in _servers) {
@@ -179,7 +180,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
       setState(() {
         _isLoading = false;
-        _statusMessage = 'Could not load reporting configuration. Details: $error';
+        _statusMessage =
+            'Could not load reporting configuration. Details: $error';
       });
     }
   }
@@ -257,7 +259,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         filter.key,
         () => TextEditingController(),
       );
-      if (controller.text.trim().isEmpty && filter.defaultValue.trim().isNotEmpty) {
+      if (controller.text.trim().isEmpty &&
+          filter.defaultValue.trim().isNotEmpty) {
         controller.text = filter.defaultValue.trim();
       }
     }
@@ -882,9 +885,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _signOut() async {
@@ -1007,7 +1010,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               headers: report.columns,
               data: tableData,
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue100),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blue100,
+              ),
               cellAlignment: pw.Alignment.centerLeft,
             ),
           ];
@@ -1025,15 +1030,68 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         .replaceAll(RegExp(r'^_+|_+$'), '');
   }
 
+  String get _pageTitle {
+    if (widget.homeMode == HomeMode.reporting) {
+      return 'VitalPro Reporting';
+    }
+
+    switch (_adminSection) {
+      case AdminPanelSection.dashboard:
+        return 'VitalPro Admin';
+      case AdminPanelSection.company:
+        return 'Admin - Company';
+      case AdminPanelSection.users:
+        return 'Admin - Users';
+      case AdminPanelSection.servers:
+        return 'Admin - SQL Servers';
+      case AdminPanelSection.queries:
+        return 'Admin - Queries';
+    }
+  }
+
+  String _adminSectionLabel(AdminPanelSection section) {
+    switch (section) {
+      case AdminPanelSection.dashboard:
+        return 'Dashboard';
+      case AdminPanelSection.company:
+        return 'Company';
+      case AdminPanelSection.users:
+        return 'Users';
+      case AdminPanelSection.servers:
+        return 'SQL Servers';
+      case AdminPanelSection.queries:
+        return 'Queries';
+    }
+  }
+
+  IconData _adminSectionIcon(AdminPanelSection section) {
+    switch (section) {
+      case AdminPanelSection.dashboard:
+        return Icons.space_dashboard_outlined;
+      case AdminPanelSection.company:
+        return Icons.business_outlined;
+      case AdminPanelSection.users:
+        return Icons.people_alt_outlined;
+      case AdminPanelSection.servers:
+        return Icons.storage_outlined;
+      case AdminPanelSection.queries:
+        return Icons.description_outlined;
+    }
+  }
+
+  void _selectAdminSection(AdminPanelSection section) {
+    setState(() {
+      _adminSection = section;
+    });
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final title = widget.homeMode == HomeMode.reporting
-        ? 'VitalPro Reporting'
-        : 'VitalPro Admin';
-
     return Scaffold(
+      drawer: _isAdminUser ? _buildAdminDrawer() : null,
       appBar: AppBar(
-        title: Text(title),
+        title: Text(_pageTitle),
         centerTitle: false,
         actions: [
           Tooltip(
@@ -1067,7 +1125,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Widget _buildReportingSection() {
-    final chartData = _reportResult == null ? null : _deriveChartData(_reportResult!);
+    final chartData = _reportResult == null
+        ? null
+        : _deriveChartData(_reportResult!);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1093,11 +1153,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ],
                 )
               : ListView(
-                  children: [
-                    leftPanel,
-                    const SizedBox(height: 20),
-                    rightPanel,
-                  ],
+                  children: [leftPanel, const SizedBox(height: 20), rightPanel],
                 ),
         );
       },
@@ -1133,10 +1189,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                     )
                   : const Center(
-                      child: VitalProLogo(
-                        size: 48,
-                        showWordmark: false,
-                      ),
+                      child: VitalProLogo(size: 48, showWordmark: false),
                     ),
             );
             final detailsBlock = Column(
@@ -1239,9 +1292,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 8),
             Text(
               'Select one SQL Server at a time, choose a saved report query, then run the report.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF4F6478),
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
             ),
             const SizedBox(height: 20),
             if (_servers.isEmpty)
@@ -1442,11 +1495,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 if (isCompact) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      summary,
-                      const SizedBox(height: 16),
-                      actions,
-                    ],
+                    children: [summary, const SizedBox(height: 16), actions],
                   );
                 }
 
@@ -1500,29 +1549,246 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Widget _buildAdminSection() {
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: ListView(
-        children: [
+      child: ListView(children: _buildAdminSectionChildren()),
+    );
+  }
+
+  List<Widget> _buildAdminSectionChildren() {
+    switch (_adminSection) {
+      case AdminPanelSection.dashboard:
+        return [
           _buildAdminHeader(),
           const SizedBox(height: 20),
+          _buildAdminOverviewCard(),
+        ];
+      case AdminPanelSection.company:
+        return [
+          _buildAdminPageIntro(
+            title: 'Company Setup',
+            description:
+                'Manage client identity details used across the reporting workspace.',
+          ),
+          const SizedBox(height: 20),
           _buildCompanyAdminCard(),
+        ];
+      case AdminPanelSection.users:
+        return [
+          _buildAdminPageIntro(
+            title: 'User Management',
+            description:
+                'Create, update, and review application accounts from one place.',
+          ),
           const SizedBox(height: 20),
           _buildUserAdminCard(),
           const SizedBox(height: 20),
           _buildSavedUsersCard(),
+        ];
+      case AdminPanelSection.servers:
+        return [
+          _buildAdminPageIntro(
+            title: 'SQL Server Management',
+            description:
+                'Configure MSSQL connections and maintain the saved server library.',
+          ),
           const SizedBox(height: 20),
           _buildServerAdminCard(),
           const SizedBox(height: 20),
           _buildSavedServersCard(),
+        ];
+      case AdminPanelSection.queries:
+        return [
+          _buildAdminPageIntro(
+            title: 'Query Management',
+            description:
+                'Maintain reusable SQL queries and their reporting filters.',
+          ),
           const SizedBox(height: 20),
           _buildQueryAdminCard(),
           const SizedBox(height: 20),
           _buildSavedQueriesCard(),
-        ],
+        ];
+    }
+  }
+
+  Widget _buildAdminDrawer() {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const VitalProLogo(size: 56, subtitle: 'Admin Workspace'),
+                  const SizedBox(height: 12),
+                  Text(
+                    widget.session.user.username,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Use the drawer to open each admin area separately.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFFB8C7D9),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFF284B63)),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: AdminPanelSection.values.map((section) {
+                  return ListTile(
+                    leading: Icon(_adminSectionIcon(section)),
+                    title: Text(_adminSectionLabel(section)),
+                    selected: _adminSection == section,
+                    iconColor: _adminSection == section
+                        ? Colors.white
+                        : const Color(0xFF9FB3C8),
+                    textColor: _adminSection == section
+                        ? Colors.white
+                        : const Color(0xFFD9E2EC),
+                    selectedColor: Colors.white,
+                    selectedTileColor: const Color(0xFF163754),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    onTap: () => _selectAdminSection(section),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildAdminHeader() {
+    final companyName = _companyProfile.companyName.trim().isEmpty
+        ? 'Client profile pending'
+        : _companyProfile.companyName;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF103B5C), Color(0xFF1E5A73)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A103B5C),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 760;
+            final intro = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const VitalProLogo(size: 72, subtitle: 'Admin Workspace'),
+                const SizedBox(height: 18),
+                Text(
+                  'Operational Control Center',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Manage client identity, user access, SQL connections, and reusable reporting queries from one controlled workspace.',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: const Color(0xFFD9E7F2),
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            );
+            final summary = Container(
+              width: isCompact ? double.infinity : 260,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0x1AFFFFFF),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0x33FFFFFF)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current profile',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: const Color(0xFFD9E7F2),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    companyName,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildHeroMetaRow(
+                    icon: Icons.people_alt_outlined,
+                    text: '${_users.length} active admin records',
+                  ),
+                  const SizedBox(height: 8),
+                  _buildHeroMetaRow(
+                    icon: Icons.storage_outlined,
+                    text: '${_servers.length} SQL endpoints configured',
+                  ),
+                  const SizedBox(height: 8),
+                  _buildHeroMetaRow(
+                    icon: Icons.description_outlined,
+                    text: '${_queries.length} saved report queries',
+                  ),
+                ],
+              ),
+            );
+
+            if (isCompact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [intro, const SizedBox(height: 20), summary],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: intro),
+                const SizedBox(width: 20),
+                summary,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdminPageIntro({
+    required String title,
+    required String description,
+  }) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -1531,20 +1797,407 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const VitalProLogo(
-              size: 74,
-              subtitle: 'Admin Workspace',
-            ),
-            const SizedBox(height: 14),
             Text(
-              'Save client branding, maintain multiple MSSQL servers, and store reusable report queries in MySQL.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF4F6478),
+              title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF0A2540),
               ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAdminOverviewCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Admin Sections',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF0A2540),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'A polished overview of your core admin data, with quick entry points for the areas that need attention.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
+            ),
+            const SizedBox(height: 20),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final tileWidth = constraints.maxWidth < 760
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - 16) / 2;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _buildOverviewStatCard(
+                      label: 'Company Profile',
+                      value: _companyProfile.companyName.trim().isEmpty
+                          ? 'Not configured'
+                          : _companyProfile.companyName,
+                      caption: _companyProfile.companyAddress.trim().isEmpty
+                          ? 'Client identity details still need attention.'
+                          : 'Brand identity and reporting address are available.',
+                      icon: Icons.business_outlined,
+                      accent: const Color(0xFFE8F1F8),
+                      width: tileWidth,
+                    ),
+                    _buildOverviewStatCard(
+                      label: 'User Accounts',
+                      value: '${_users.length}',
+                      caption:
+                          '${_users.where((user) => user.isActive).length} active accounts currently available.',
+                      icon: Icons.people_alt_outlined,
+                      accent: const Color(0xFFEAF5F1),
+                      width: tileWidth,
+                    ),
+                    _buildOverviewStatCard(
+                      label: 'SQL Servers',
+                      value: '${_servers.length}',
+                      caption: _servers.isEmpty
+                          ? 'No MSSQL servers connected yet.'
+                          : 'Saved endpoints are ready for reporting sessions.',
+                      icon: Icons.storage_outlined,
+                      accent: const Color(0xFFF4ECFA),
+                      width: tileWidth,
+                    ),
+                    _buildOverviewStatCard(
+                      label: 'Saved Queries',
+                      value: '${_queries.length}',
+                      caption: _queries.isEmpty
+                          ? 'No reusable SQL query library yet.'
+                          : 'Report query catalog is available for runtime use.',
+                      icon: Icons.description_outlined,
+                      accent: const Color(0xFFFEF3E8),
+                      width: tileWidth,
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 980;
+                final quickActions = _buildAdminActionPanel();
+                final operations = _buildAdminOperationsPanel();
+
+                if (isCompact) {
+                  return Column(
+                    children: [
+                      quickActions,
+                      const SizedBox(height: 16),
+                      operations,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: quickActions),
+                    const SizedBox(width: 16),
+                    Expanded(child: operations),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverviewStatCard({
+    required String label,
+    required String value,
+    required String caption,
+    required IconData icon,
+    required Color accent,
+    required double width,
+  }) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: const Color(0xFF103B5C)),
+              ),
+              const Spacer(),
+              Text(
+                label,
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF486581),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF102A43),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            caption,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF627D98),
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdminActionPanel() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFD),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Quick Actions',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF102A43),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Jump directly into the area that usually needs the next administrative update.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF627D98)),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _buildDashboardActionButton(
+                icon: Icons.business_outlined,
+                label: 'Edit Company',
+                section: AdminPanelSection.company,
+                isPrimary: true,
+              ),
+              _buildDashboardActionButton(
+                icon: Icons.people_alt_outlined,
+                label: 'Manage Users',
+                section: AdminPanelSection.users,
+              ),
+              _buildDashboardActionButton(
+                icon: Icons.storage_outlined,
+                label: 'Review Servers',
+                section: AdminPanelSection.servers,
+              ),
+              _buildDashboardActionButton(
+                icon: Icons.description_outlined,
+                label: 'Open Queries',
+                section: AdminPanelSection.queries,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardActionButton({
+    required IconData icon,
+    required String label,
+    required AdminPanelSection section,
+    bool isPrimary = false,
+  }) {
+    final onPressed = () {
+      setState(() {
+        _adminSection = section;
+      });
+    };
+
+    if (isPrimary) {
+      return FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Text(label),
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+    );
+  }
+
+  Widget _buildAdminOperationsPanel() {
+    final readinessItems = [
+      (
+        title: 'Company identity',
+        ready: _companyProfile.companyName.trim().isNotEmpty,
+      ),
+      (title: 'User access', ready: _users.isNotEmpty),
+      (title: 'SQL connectivity', ready: _servers.isNotEmpty),
+      (title: 'Query library', ready: _queries.isNotEmpty),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Operational Readiness',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF102A43),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'A quick health snapshot of the configuration needed for a smooth reporting workflow.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF627D98)),
+          ),
+          const SizedBox(height: 18),
+          ...readinessItems.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildReadinessRow(title: item.title, ready: item.ready),
+            ),
+          ),
+          if (_healthMessage != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFD8E2EC)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'API Status',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF486581),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(_healthMessage!),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadinessRow({required String title, required bool ready}) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: ready ? const Color(0xFFE7F7EF) : const Color(0xFFFFF4E5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            ready ? Icons.check_circle_outline : Icons.schedule_outlined,
+            color: ready ? const Color(0xFF137752) : const Color(0xFFB56A00),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF243B53),
+            ),
+          ),
+        ),
+        Text(
+          ready ? 'Ready' : 'Needs setup',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: ready ? const Color(0xFF137752) : const Color(0xFFB56A00),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroMetaRow({required IconData icon, required String text}) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFFD9E7F2)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: const Color(0xFFD9E7F2)),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1559,9 +2212,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'Client Company',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 20),
             _buildTextField(
@@ -1605,9 +2258,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'SQL Server Setup',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 20),
             _buildTextField(
@@ -1689,7 +2342,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         : Icons.save_outlined,
                   ),
                   label: Text(
-                    _editingServerId == null ? 'Save SQL Server' : 'Update Server',
+                    _editingServerId == null
+                        ? 'Save SQL Server'
+                        : 'Update Server',
                   ),
                 ),
                 OutlinedButton.icon(
@@ -1716,9 +2371,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'App Users',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 20),
             _buildTextField(
@@ -1823,9 +2478,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'User Directory',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_users.isEmpty)
@@ -1894,9 +2549,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'Saved SQL Servers',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_servers.isEmpty)
@@ -1967,9 +2622,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'Saved Queries',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 20),
             _buildTextField(
@@ -1981,7 +2636,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             _buildTextField(
               controller: _queryTextController,
               label: 'SQL query',
-              hint: 'SELECT * FROM products WHERE DocumentDate = {{DocumentDate}}',
+              hint:
+                  'SELECT * FROM products WHERE DocumentDate = {{DocumentDate}}',
               maxLines: 8,
             ),
             const SizedBox(height: 12),
@@ -2070,9 +2726,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           children: [
             Text(
               'Query Library',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_queries.isEmpty)
@@ -2271,21 +2927,23 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           _buildTextField(
             controller: filter.placeholderController,
             label: 'Placeholder',
-            hint: filter.type == QueryFilterType.date ? 'dd-MMM-yyyy' : 'Optional hint',
+            hint: filter.type == QueryFilterType.date
+                ? 'dd-MMM-yyyy'
+                : 'Optional hint',
           ),
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.defaultValueController,
             label: 'Default value',
-            hint: filter.type == QueryFilterType.date ? '09-Feb-2026' : 'Optional default',
+            hint: filter.type == QueryFilterType.date
+                ? '09-Feb-2026'
+                : 'Optional default',
           ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             value: filter.isRequired,
             onChanged: (value) {
-              final nextFilter = filter.copyWith(
-                isRequired: value ?? false,
-              );
+              final nextFilter = filter.copyWith(isRequired: value ?? false);
               setState(() {
                 _queryFilters[index] = nextFilter;
               });
@@ -2321,8 +2979,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   (row) => DataRow(
                     cells: result.columns
                         .map(
-                          (column) =>
-                              DataCell(Text(_formatCell(row[column]))),
+                          (column) => DataCell(Text(_formatCell(row[column]))),
                         )
                         .toList(),
                   ),
@@ -2352,9 +3009,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         children: [
           Text(
             'Chart Preview',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
@@ -2364,9 +3021,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 4),
             Text(
               'Showing the first ${chartData.points.length} rows for readability.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF4F6478),
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: const Color(0xFF4F6478)),
             ),
           ],
           const SizedBox(height: 16),
@@ -2469,7 +3126,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     const limit = 12;
     final points = <_ChartPoint>[];
-    for (var index = 0; index < result.rows.length && points.length < limit; index++) {
+    for (
+      var index = 0;
+      index < result.rows.length && points.length < limit;
+      index++
+    ) {
       final row = result.rows[index];
       final value = _asDouble(row[valueColumn]);
       if (value == null) {
@@ -2635,10 +3296,10 @@ class _EditableQueryFilter {
     this.isRequired = false,
     String placeholder = '',
     String defaultValue = '',
-  })  : keyController = TextEditingController(text: key),
-        labelController = TextEditingController(text: label),
-        placeholderController = TextEditingController(text: placeholder),
-        defaultValueController = TextEditingController(text: defaultValue);
+  }) : keyController = TextEditingController(text: key),
+       labelController = TextEditingController(text: label),
+       placeholderController = TextEditingController(text: placeholder),
+       defaultValueController = TextEditingController(text: defaultValue);
 
   factory _EditableQueryFilter.fromDefinition(QueryFilterDefinition filter) {
     return _EditableQueryFilter(
@@ -2658,10 +3319,7 @@ class _EditableQueryFilter {
   final QueryFilterType type;
   final bool isRequired;
 
-  _EditableQueryFilter copyWith({
-    QueryFilterType? type,
-    bool? isRequired,
-  }) {
+  _EditableQueryFilter copyWith({QueryFilterType? type, bool? isRequired}) {
     return _EditableQueryFilter(
       key: keyController.text,
       label: labelController.text,

@@ -79,111 +79,120 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
-            child: Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(30),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Center(
-                        child: VitalProLogo(
-                          size: 88,
-                          subtitle: 'Secure Analytics',
-                        ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 540),
+                    child: Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
                       ),
-                      const SizedBox(height: 28),
-                      Text(
-                        'Sign In',
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF0A2540),
+                      child: Padding(
+                        padding: const EdgeInsets.all(30),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Center(
+                              child: VitalProLogo(
+                                size: 88,
+                                subtitle: 'Secure Analytics',
+                              ),
                             ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Sign in with a database user account to open the reporting workspace. The default admin login is `admin` / `Admin786`.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF4F6478),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: _usernameController,
-                        textInputAction: TextInputAction.next,
-                        decoration: InputDecoration(
-                          labelText: 'Username',
-                          hintText: 'admin',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: !_isPasswordVisible,
-                        onSubmitted: (_) => _login(),
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          hintText: 'Admin786',
-                          errorText: _errorMessage,
-                          suffixIcon: IconButton(
-                            tooltip: _isPasswordVisible
-                                ? 'Hide password'
-                                : 'Show password',
-                            onPressed: _isBusy
-                                ? null
-                                : () {
-                              setState(() {
-                                _isPasswordVisible = !_isPasswordVisible;
-                              });
-                            },
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
+                            const SizedBox(height: 28),
+                            Text(
+                              'Sign In',
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF0A2540),
+                                  ),
                             ),
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
+                            const SizedBox(height: 10),
+                            Text(
+                              'Sign in with a database user account to open the reporting workspace. The default admin login is `admin` / `Admin786`.',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: const Color(0xFF4F6478)),
+                            ),
+                            const SizedBox(height: 24),
+                            TextField(
+                              controller: _usernameController,
+                              textInputAction: TextInputAction.next,
+                              decoration: InputDecoration(
+                                labelText: 'Username',
+                                hintText: 'admin',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _passwordController,
+                              obscureText: !_isPasswordVisible,
+                              onSubmitted: (_) => _login(),
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                hintText: 'Admin786',
+                                errorText: _errorMessage,
+                                suffixIcon: IconButton(
+                                  tooltip: _isPasswordVisible
+                                      ? 'Hide password'
+                                      : 'Show password',
+                                  onPressed: _isBusy
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _isPasswordVisible =
+                                                !_isPasswordVisible;
+                                          });
+                                        },
+                                  icon: Icon(
+                                    _isPasswordVisible
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                  ),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: _isBusy ? null : _login,
+                                child: _isBusy
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Sign In'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: _isBusy ? null : _login,
-                          child: _isBusy
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('Sign In'),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
