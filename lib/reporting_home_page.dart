@@ -48,6 +48,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   final _queryTextController = TextEditingController();
   final _userUsernameController = TextEditingController();
   final _userPasswordController = TextEditingController();
+  final _userBranchController = TextEditingController();
 
   final Map<String, TextEditingController> _reportFilterControllers = {};
   List<_EditableQueryFilter> _queryFilters = [];
@@ -120,6 +121,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     _queryTextController.dispose();
     _userUsernameController.dispose();
     _userPasswordController.dispose();
+    _userBranchController.dispose();
     _disposeQueryFilters(_queryFilters);
     for (final controller in _reportFilterControllers.values) {
       controller.dispose();
@@ -611,6 +613,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           password: _userPasswordController.text,
           role: _userRole,
           isActive: _userIsActive,
+          assignedBranch: _userBranchController.text.trim(),
         ),
       );
       if (!mounted) {
@@ -711,6 +714,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _loadUserForEditing(AppUser user) {
     _userUsernameController.text = user.username;
     _userPasswordController.clear();
+    _userBranchController.text = user.assignedBranch;
     setState(() {
       _editingUserId = user.id;
       _userRole = user.role;
@@ -747,6 +751,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   void _resetUserForm() {
     _userUsernameController.clear();
     _userPasswordController.clear();
+    _userBranchController.clear();
     setState(() {
       _editingUserId = null;
       _userRole = UserRole.reporting;
@@ -1193,7 +1198,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     ),
             );
             final detailsBlock = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
                   _companyProfile.companyName.trim().isEmpty
@@ -1203,6 +1208,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF0A2540),
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -1212,6 +1218,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF4F6478),
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
                 Container(
@@ -1247,7 +1254,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
             if (isCompact) {
               return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   identityBlock,
                   const SizedBox(height: 18),
@@ -1256,12 +1263,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               );
             }
 
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                identityBlock,
-                const SizedBox(width: 18),
-                Expanded(child: detailsBlock),
+                Center(child: identityBlock),
+                const SizedBox(height: 18),
+                Center(child: detailsBlock),
               ],
             );
           },
@@ -2054,11 +2061,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     required AdminPanelSection section,
     bool isPrimary = false,
   }) {
-    final onPressed = () {
+    void onPressed() {
       setState(() {
         _adminSection = section;
       });
-    };
+    }
 
     if (isPrimary) {
       return FilledButton.icon(
@@ -2383,6 +2390,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
             const SizedBox(height: 16),
             _buildTextField(
+              controller: _userBranchController,
+              label: 'Assigned branch',
+              hint: 'Lahore Branch',
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
               controller: _userPasswordController,
               label: _editingUserId == null
                   ? 'Password'
@@ -2524,6 +2537,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         ],
                       ),
                       Text('Role: ${user.role.name}'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Assigned branch: ${user.assignedBranch.trim().isEmpty ? 'Unassigned' : user.assignedBranch}',
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         user.isActive ? 'Status: active' : 'Status: inactive',

@@ -15,12 +15,14 @@ class AppUser {
     required this.id,
     required this.username,
     required this.role,
+    this.assignedBranch = '',
     this.isActive = true,
   });
 
   final int id;
   final String username;
   final UserRole role;
+  final String assignedBranch;
   final bool isActive;
 
   bool get isAdmin => role == UserRole.admin;
@@ -32,6 +34,8 @@ class AppUser {
           : int.tryParse('${json['id'] ?? ''}') ?? 0,
       username: (json['username'] ?? '').toString(),
       role: _parseUserRole(json['role']),
+      assignedBranch: (json['assignedBranch'] ?? json['assigned_branch'] ?? '')
+          .toString(),
       isActive:
           json['isActive'] == true ||
           json['is_active'] == true ||
@@ -45,6 +49,7 @@ class AppUser {
       'id': id,
       'username': username,
       'role': role.name,
+      'assignedBranch': assignedBranch,
       'isActive': isActive,
     };
   }
@@ -53,22 +58,21 @@ class AppUser {
     int? id,
     String? username,
     UserRole? role,
+    String? assignedBranch,
     bool? isActive,
   }) {
     return AppUser(
       id: id ?? this.id,
       username: username ?? this.username,
       role: role ?? this.role,
+      assignedBranch: assignedBranch ?? this.assignedBranch,
       isActive: isActive ?? this.isActive,
     );
   }
 }
 
 class AuthSession {
-  const AuthSession({
-    required this.token,
-    required this.user,
-  });
+  const AuthSession({required this.token, required this.user});
 
   final String token;
   final AppUser user;
@@ -100,12 +104,12 @@ class CompanyProfile {
     }
 
     return CompanyProfile(
-      companyName:
-          (json['companyName'] ?? json['company_name'] ?? '').toString(),
-      companyAddress:
-          (json['companyAddress'] ?? json['company_address'] ?? '').toString(),
-      companyLogoUrl:
-          (json['companyLogoUrl'] ?? json['company_logo_url'] ?? '').toString(),
+      companyName: (json['companyName'] ?? json['company_name'] ?? '')
+          .toString(),
+      companyAddress: (json['companyAddress'] ?? json['company_address'] ?? '')
+          .toString(),
+      companyLogoUrl: (json['companyLogoUrl'] ?? json['company_logo_url'] ?? '')
+          .toString(),
     );
   }
 
@@ -155,7 +159,9 @@ class ReportingServer {
 
   factory ReportingServer.fromJson(Map<String, dynamic> json) {
     final authenticationModeValue =
-        (json['authenticationMode'] ?? json['authentication_mode'] ?? 'sqlServer')
+        (json['authenticationMode'] ??
+                json['authentication_mode'] ??
+                'sqlServer')
             .toString();
 
     return ReportingServer(
@@ -167,8 +173,8 @@ class ReportingServer {
       port: json['port'] is int
           ? json['port'] as int
           : int.tryParse('${json['port'] ?? ''}') ?? 1433,
-      databaseName:
-          (json['databaseName'] ?? json['database_name'] ?? '').toString(),
+      databaseName: (json['databaseName'] ?? json['database_name'] ?? '')
+          .toString(),
       authenticationMode: authenticationModeValue == 'windows'
           ? AuthenticationMode.windows
           : AuthenticationMode.sqlServer,
@@ -369,7 +375,9 @@ class ReportingBootstrap {
         json['companyProfile'] as Map<String, dynamic>?,
       ),
       servers: (json['servers'] as List<dynamic>? ?? const [])
-          .map((item) => ReportingServer.fromJson(Map<String, dynamic>.from(item)))
+          .map(
+            (item) => ReportingServer.fromJson(Map<String, dynamic>.from(item)),
+          )
           .toList(),
       queries: (json['queries'] as List<dynamic>? ?? const [])
           .map((item) => SavedQuery.fromJson(Map<String, dynamic>.from(item)))
@@ -387,6 +395,7 @@ class AdminUserInput {
     required this.username,
     required this.role,
     required this.isActive,
+    this.assignedBranch = '',
     this.password = '',
   });
 
@@ -394,6 +403,7 @@ class AdminUserInput {
   final String username;
   final UserRole role;
   final bool isActive;
+  final String assignedBranch;
   final String password;
 
   Map<String, dynamic> toJson() {
@@ -402,6 +412,7 @@ class AdminUserInput {
       'username': username,
       'role': role.name,
       'isActive': isActive,
+      'assignedBranch': assignedBranch,
       'password': password,
     };
   }

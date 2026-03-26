@@ -118,6 +118,7 @@ async function initializeStorage() {
       username VARCHAR(100) NOT NULL,
       password_hash TEXT NOT NULL,
       role VARCHAR(20) NOT NULL DEFAULT 'reporting',
+      assigned_branch VARCHAR(255) NOT NULL DEFAULT '',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -141,6 +142,11 @@ async function ensureOptionalSchemaColumns() {
     'report_queries',
     'filters_json',
     'ALTER TABLE report_queries ADD COLUMN filters_json LONGTEXT NULL AFTER query_text',
+  );
+  await ensureColumnExists(
+    'app_users',
+    'assigned_branch',
+    "ALTER TABLE app_users ADD COLUMN assigned_branch VARCHAR(255) NOT NULL DEFAULT '' AFTER role",
   );
 }
 
@@ -273,7 +279,7 @@ async function authenticateUser(username, password) {
   }
 
   const [rows] = await pool.query(
-    `SELECT id, username, password_hash, role, is_active
+    `SELECT id, username, password_hash, role, assigned_branch, is_active
      FROM app_users
      WHERE username = ?
      LIMIT 1`,
@@ -294,6 +300,7 @@ async function authenticateUser(username, password) {
     id: user.id,
     username: user.username,
     role: normalizeRole(user.role),
+    assignedBranch: user.assigned_branch || '',
   };
 }
 
@@ -546,7 +553,7 @@ async function loadAdminBootstrap() {
 
 async function listUsers() {
   const [rows] = await pool.query(
-    `SELECT id, username, role, is_active
+    `SELECT id, username, role, assigned_branch, is_active
      FROM app_users
      ORDER BY username ASC, id ASC`,
   );
@@ -555,6 +562,7 @@ async function listUsers() {
     id: row.id,
     username: row.username,
     role: normalizeRole(row.role),
+    assignedBranch: row.assigned_branch || '',
     isActive: !!row.is_active,
   }));
 }
@@ -666,6 +674,7 @@ async function deleteQuery(id) {
 async function saveUser(payload) {
   const username = String(payload.username || '').trim().toLowerCase();
   const role = normalizeRole(payload.role);
+  const assignedBranch = String(payload.assignedBranch || payload.assigned_branch || '').trim();
   const isActive = toBoolean(payload.isActive) ? 1 : 0;
   const id = payload.id ? parseInt(payload.id, 10) : null;
 
@@ -673,9 +682,10 @@ async function saveUser(payload) {
     const updates = [
       'username = ?',
       'role = ?',
+      'assigned_branch = ?',
       'is_active = ?',
     ];
-    const values = [username, role, isActive];
+    const values = [username, role, assignedBranch, isActive];
 
     if (String(payload.password || '').trim()) {
       updates.push('password_hash = ?');
@@ -693,9 +703,9 @@ async function saveUser(payload) {
   }
 
   await pool.query(
-    `INSERT INTO app_users (username, password_hash, role, is_active)
-     VALUES (?, ?, ?, ?)`,
-    [username, await hashPassword(payload.password), role, isActive],
+    `INSERT INTO app_users (username, password_hash, role, assigned_branch, is_active)
+     VALUES (?, ?, ?, ?, ?)`,
+    [username, await hashPassword(payload.password), role, assignedBranch, isActive],
   );
   return 'User created successfully.';
 }
