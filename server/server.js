@@ -1055,6 +1055,51 @@ async function runReport(serverId, queryId, filterValues = {}) {
   };
 }
 
+async function resetUserPassword(username, currentPassword, newPassword) {
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+  const nextPassword = String(newPassword || '');
+  if (!normalizedUsername || !String(currentPassword || '') || !nextPassword) {
+    throw createHttpError(
+      400,
+      'Username, current password, and new password are required.',
+    );
+  }
+
+  if (nextPassword.length < 6) {
+    throw createHttpError(400, 'New password must be at least 6 characters.');
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, password_hash, is_active
+     FROM app_users
+     WHERE username = ?
+     LIMIT 1`,
+    [normalizedUsername],
+  );
+
+  const user = rows[0];
+  if (!user || !user.is_active) {
+    throw createHttpError(401, 'Invalid username or current password.');
+  }
+
+  const isValidPassword = await verifyPassword(currentPassword, user.password_hash);
+  if (!isValidPassword) {
+    throw createHttpError(401, 'Invalid username or current password.');
+  }
+
+  await pool.query(
+    `UPDATE app_users
+     SET password_hash = ?
+     WHERE id = ?`,
+    [await hashPassword(nextPassword), user.id],
+  );
+
+  return {
+    success: true,
+    message: 'Password reset successful. You can sign in with the new password.',
+  };
+}
+
 async function fetchReportFilterOptions(serverId, queryId, filterKey, filterValues = {}) {
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
@@ -1315,6 +1360,20 @@ const server = http.createServer(async (req, res) => {
         token,
         user,
       });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/auth/reset-password') {
+      const payload = await readJsonBody(req);
+      sendJson(
+        res,
+        200,
+        await resetUserPassword(
+          payload.username,
+          payload.currentPassword,
+          payload.newPassword,
+        ),
+      );
       return;
     }
 

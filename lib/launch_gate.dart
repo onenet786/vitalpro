@@ -75,6 +75,191 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
     });
   }
 
+  Future<void> _openResetPasswordDialog() async {
+    final usernameController = TextEditingController(
+      text: _usernameController.text.trim(),
+    );
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    String? errorMessage;
+    bool isSubmitting = false;
+    bool showCurrentPassword = false;
+    bool showNewPassword = false;
+    bool showConfirmPassword = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !isSubmitting,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              final username = usernameController.text.trim();
+              final currentPassword = currentPasswordController.text;
+              final newPassword = newPasswordController.text;
+              final confirmPassword = confirmPasswordController.text;
+
+              if (username.isEmpty ||
+                  currentPassword.isEmpty ||
+                  newPassword.isEmpty ||
+                  confirmPassword.isEmpty) {
+                setDialogState(() {
+                  errorMessage = 'All fields are required.';
+                });
+                return;
+              }
+
+              if (newPassword != confirmPassword) {
+                setDialogState(() {
+                  errorMessage = 'New password and confirm password must match.';
+                });
+                return;
+              }
+
+              setDialogState(() {
+                isSubmitting = true;
+                errorMessage = null;
+              });
+
+              try {
+                final result = await _apiClient.resetPassword(
+                  username: username,
+                  currentPassword: currentPassword,
+                  newPassword: newPassword,
+                );
+                if (!mounted) {
+                  return;
+                }
+                Navigator.of(context).pop();
+                setState(() {
+                  _usernameController.text = username;
+                  _passwordController.clear();
+                  _errorMessage = result.message;
+                });
+              } catch (error) {
+                setDialogState(() {
+                  isSubmitting = false;
+                  errorMessage = error.toString().replaceFirst('Exception: ', '');
+                });
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Reset Password'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: usernameController,
+                      enabled: !isSubmitting,
+                      decoration: const InputDecoration(
+                        labelText: 'Username',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: currentPasswordController,
+                      enabled: !isSubmitting,
+                      obscureText: !showCurrentPassword,
+                      decoration: InputDecoration(
+                        labelText: 'Current password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              showCurrentPassword = !showCurrentPassword;
+                            });
+                          },
+                          icon: Icon(
+                            showCurrentPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: newPasswordController,
+                      enabled: !isSubmitting,
+                      obscureText: !showNewPassword,
+                      decoration: InputDecoration(
+                        labelText: 'New password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              showNewPassword = !showNewPassword;
+                            });
+                          },
+                          icon: Icon(
+                            showNewPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmPasswordController,
+                      enabled: !isSubmitting,
+                      obscureText: !showConfirmPassword,
+                      onSubmitted: (_) => submit(),
+                      decoration: InputDecoration(
+                        labelText: 'Confirm password',
+                        border: const OutlineInputBorder(),
+                        errorText: errorMessage,
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              showConfirmPassword = !showConfirmPassword;
+                            });
+                          },
+                          icon: Icon(
+                            showConfirmPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting ? null : submit,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Reset'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    usernameController.dispose();
+    currentPasswordController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -115,12 +300,6 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
                                     fontWeight: FontWeight.w700,
                                     color: const Color(0xFF0A2540),
                                   ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Sign in with a database user account to open the reporting workspace. The default admin login is `admin` / `Admin786`.',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: const Color(0xFF4F6478)),
                             ),
                             const SizedBox(height: 24),
                             TextField(
@@ -171,6 +350,16 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
                               ),
                             ),
                             const SizedBox(height: 18),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _isBusy
+                                    ? null
+                                    : _openResetPasswordDialog,
+                                child: const Text('Reset Password'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,
                               child: FilledButton(

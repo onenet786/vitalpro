@@ -67,7 +67,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   AdminPanelSection _adminSection = AdminPanelSection.dashboard;
   String _chartLabelColumn = _rowLabelColumnKey;
   String? _chartValueColumn;
-  _ChartVisualType _chartVisualType = _ChartVisualType.bar;
+  _ChartVisualType _chartVisualType = _ChartVisualType.pie;
   String? _statusMessage;
   String? _healthMessage;
   Set<String> _loadingReportFilterOptions = const {};
@@ -423,6 +423,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _chartValueColumn = chartDefaults.valueColumn;
         _isBusy = false;
         _statusMessage = 'Report returned ${result.rowCount} row(s).';
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _openReportViewer(result);
+        }
       });
     } catch (error) {
       if (!mounted) {
@@ -1738,7 +1743,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ],
               ],
               const SizedBox(height: 16),
-              _buildTable(result),
+              FilledButton.icon(
+                onPressed: () => _openReportViewer(result),
+                icon: const Icon(Icons.open_in_full_rounded),
+                label: const Text('Open Report Viewer'),
+              ),
             ],
           ],
         ),
@@ -3125,6 +3134,29 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     );
   }
 
+  Future<void> _openReportViewer(ReportResult result) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _ReportViewerDialog(
+        result: result,
+        onPrint: _printReport,
+        onExportPdf: _exportReportPdf,
+      ),
+    );
+  }
+
+  Future<void> _openChartViewer(_ChartData chartData) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _ChartViewerDialog(
+        chartData: chartData,
+        initialVisualType: _chartVisualType,
+      ),
+    );
+  }
+
   Widget _buildReportFilterInput(QueryFilterDefinition filter) {
     final controller = _reportFilterControllers.putIfAbsent(
       filter.key,
@@ -3209,7 +3241,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           onChanged: (value) {
             controller.text = (value ?? '').trim();
             setState(() {});
-            _refreshReportFilterOptions();
           },
         ),
       );
@@ -3219,7 +3250,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: controller,
-        onChanged: (_) => _refreshReportFilterOptions(),
         keyboardType: filter.type == QueryFilterType.number
             ? const TextInputType.numberWithOptions(decimal: true, signed: true)
             : TextInputType.text,
@@ -3505,96 +3535,106 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ).textTheme.bodySmall?.copyWith(color: const Color(0xFF4F6478)),
             ),
           ],
+          const SizedBox(height: 4),
+          Text(
+            'Double-tap the chart to open it in a larger viewer.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF5E7688)),
+          ),
           const SizedBox(height: 16),
-          SizedBox(
-            height: 260,
-            child: _chartVisualType == _ChartVisualType.bar
-                ? BarChart(
-                    BarChartData(
-                      maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
-                      alignment: BarChartAlignment.spaceAround,
-                      gridData: const FlGridData(show: true),
-                      borderData: FlBorderData(show: false),
-                      titlesData: FlTitlesData(
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 44,
-                            getTitlesWidget: (value, meta) => Text(
-                              value.toStringAsFixed(0),
-                              style: const TextStyle(fontSize: 11),
-                            ),
+          GestureDetector(
+            onDoubleTap: () => _openChartViewer(chartData),
+            child: SizedBox(
+              height: 260,
+              child: _chartVisualType == _ChartVisualType.bar
+                  ? BarChart(
+                      BarChartData(
+                        maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
+                        alignment: BarChartAlignment.spaceAround,
+                        gridData: const FlGridData(show: true),
+                        borderData: FlBorderData(show: false),
+                        titlesData: FlTitlesData(
+                          rightTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
                           ),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 48,
-                            getTitlesWidget: (value, meta) {
-                              final index = value.toInt();
-                              if (index < 0 || index >= chartData.points.length) {
-                                return const SizedBox.shrink();
-                              }
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Transform.rotate(
-                                  angle: -0.5,
-                                  child: Text(
-                                    chartData.points[index].label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                ),
-                              );
-                            },
+                          topTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
                           ),
-                        ),
-                      ),
-                      barGroups: [
-                        for (var index = 0; index < chartData.points.length; index++)
-                          BarChartGroupData(
-                            x: index,
-                            barRods: [
-                              BarChartRodData(
-                                toY: chartData.points[index].value,
-                                width: 20,
-                                borderRadius: BorderRadius.circular(6),
-                                color: chartColors[index % chartColors.length],
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 44,
+                              getTitlesWidget: (value, meta) => Text(
+                                value.toStringAsFixed(0),
+                                style: const TextStyle(fontSize: 11),
                               ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  )
-                : PieChart(
-                    PieChartData(
-                      centerSpaceRadius: 34,
-                      sectionsSpace: 2,
-                      sections: [
-                        for (var index = 0; index < chartData.points.length; index++)
-                          PieChartSectionData(
-                            color: chartColors[index % chartColors.length],
-                            value: chartData.points[index].value,
-                            radius: 90,
-                            title: totalValue <= 0
-                                ? chartData.points[index].value.toStringAsFixed(0)
-                                : '${((chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
-                            titleStyle: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
                             ),
                           ),
-                      ],
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 48,
+                              getTitlesWidget: (value, meta) {
+                                final index = value.toInt();
+                                if (index < 0 || index >= chartData.points.length) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Transform.rotate(
+                                    angle: -0.5,
+                                    child: Text(
+                                      chartData.points[index].label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        barGroups: [
+                          for (var index = 0; index < chartData.points.length; index++)
+                            BarChartGroupData(
+                              x: index,
+                              barRods: [
+                                BarChartRodData(
+                                  toY: chartData.points[index].value,
+                                  width: 20,
+                                  borderRadius: BorderRadius.circular(6),
+                                  color: chartColors[index % chartColors.length],
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    )
+                  : PieChart(
+                      PieChartData(
+                        centerSpaceRadius: 34,
+                        sectionsSpace: 2,
+                        sections: [
+                          for (var index = 0; index < chartData.points.length; index++)
+                            PieChartSectionData(
+                              color: chartColors[index % chartColors.length],
+                              value: chartData.points[index].value,
+                              radius: 90,
+                              title: totalValue <= 0
+                                  ? chartData.points[index].value.toStringAsFixed(0)
+                                  : '${((chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
+                              titleStyle: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
+            ),
           ),
           if (_chartVisualType == _ChartVisualType.pie) ...[
             const SizedBox(height: 16),
@@ -3941,6 +3981,626 @@ class _ChartSelection {
 
   final String labelColumn;
   final String? valueColumn;
+}
+
+class _ReportViewerDialog extends StatefulWidget {
+  const _ReportViewerDialog({
+    required this.result,
+    required this.onPrint,
+    required this.onExportPdf,
+  });
+
+  final ReportResult result;
+  final Future<void> Function() onPrint;
+  final Future<void> Function() onExportPdf;
+
+  @override
+  State<_ReportViewerDialog> createState() => _ReportViewerDialogState();
+}
+
+class _ReportViewerDialogState extends State<_ReportViewerDialog> {
+  final TransformationController _transformationController =
+      TransformationController();
+  double _scale = 1;
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  void _setScale(double value) {
+    final nextScale = value.clamp(0.75, 3.0);
+    _transformationController.value = Matrix4.identity()..scale(nextScale);
+    setState(() {
+      _scale = nextScale;
+    });
+  }
+
+  void _zoomIn() => _setScale(_scale + 0.2);
+
+  void _zoomOut() => _setScale(_scale - 0.2);
+
+  void _resetZoom() => _setScale(1);
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(12),
+      clipBehavior: Clip.antiAlias,
+      backgroundColor: const Color(0xFFF3F7FB),
+      child: SizedBox(
+        width: 1200,
+        height: 760,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isCompact = constraints.maxWidth < 760;
+                  final summary = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Report Viewer',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0A2540),
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${widget.result.queryName}  -  ${widget.result.rowCount} row(s)',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF4F6478),
+                        ),
+                      ),
+                    ],
+                  );
+                  final actions = Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _ViewerIconButton(
+                        onPressed: _zoomOut,
+                        tooltip: 'Zoom out',
+                        icon: Icons.zoom_out_rounded,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: _resetZoom,
+                        tooltip: 'Reset zoom',
+                        icon: Icons.center_focus_strong_rounded,
+                        badge: '${(_scale * 100).round()}%',
+                      ),
+                      _ViewerIconButton(
+                        onPressed: _zoomIn,
+                        tooltip: 'Zoom in',
+                        icon: Icons.zoom_in_rounded,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: widget.onPrint,
+                        tooltip: 'Print',
+                        icon: Icons.print_outlined,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: widget.onExportPdf,
+                        tooltip: 'Export PDF',
+                        icon: Icons.picture_as_pdf_outlined,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Close',
+                        icon: Icons.close_rounded,
+                        isPrimary: true,
+                      ),
+                    ],
+                  );
+
+                  if (isCompact) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [summary, const SizedBox(height: 12), actions],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: summary),
+                      const SizedBox(width: 12),
+                      Flexible(child: actions),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetricChip(label: 'Server', value: widget.result.serverName),
+                  _MetricChip(
+                    label: 'Executed',
+                    value: _formatViewerTimestamp(widget.result.executedAt),
+                  ),
+                  _MetricChip(label: 'Rows', value: '${widget.result.rowCount}'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFFFFF), Color(0xFFF6FAFD)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFCFE0EC)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x140B3353),
+                        blurRadius: 18,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: InteractiveViewer(
+                      transformationController: _transformationController,
+                      minScale: 0.75,
+                      maxScale: 3,
+                      panEnabled: true,
+                      scaleEnabled: true,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor:
+                                WidgetStateProperty.resolveWith<Color?>(
+                              (_) => const Color(0xFFDCEAF4),
+                            ),
+                            dataRowMinHeight: 44,
+                            dataRowMaxHeight: 52,
+                            columnSpacing: 24,
+                            columns: widget.result.columns
+                                .map(
+                                  (column) => DataColumn(
+                                    label: Text(
+                                      column,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF103B5C),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            rows: widget.result.rows
+                                .asMap()
+                                .map(
+                                  (index, row) => MapEntry(
+                                    index,
+                                    DataRow(
+                                      color: WidgetStateProperty.resolveWith<
+                                          Color?>(
+                                        (_) => index.isEven
+                                            ? const Color(0xFFFFFFFF)
+                                            : const Color(0xFFF7FBFE),
+                                      ),
+                                      cells: widget.result.columns
+                                          .map(
+                                            (column) => DataCell(
+                                              Text(
+                                                (row[column] ?? '').toString(),
+                                                style: const TextStyle(
+                                                  color: Color(0xFF29465B),
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ),
+                                )
+                                .values
+                                .toList(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChartViewerDialog extends StatefulWidget {
+  const _ChartViewerDialog({
+    required this.chartData,
+    required this.initialVisualType,
+  });
+
+  final _ChartData chartData;
+  final _ChartVisualType initialVisualType;
+
+  @override
+  State<_ChartViewerDialog> createState() => _ChartViewerDialogState();
+}
+
+class _ChartViewerDialogState extends State<_ChartViewerDialog> {
+  late _ChartVisualType _visualType;
+
+  static const _chartColors = [
+    Color(0xFF2563EB),
+    Color(0xFFDC2626),
+    Color(0xFF059669),
+    Color(0xFFD97706),
+    Color(0xFF7C3AED),
+    Color(0xFFDB2777),
+    Color(0xFF0891B2),
+    Color(0xFF65A30D),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _visualType = widget.initialVisualType;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = widget.chartData.points
+        .map((point) => point.value)
+        .fold<double>(0, (max, value) => value > max ? value : max);
+    final totalValue = widget.chartData.points.fold<double>(
+      0,
+      (sum, point) => sum + point.value,
+    );
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(18),
+      clipBehavior: Clip.antiAlias,
+      backgroundColor: const Color(0xFFF3F7FB),
+      child: SizedBox(
+        width: 1080,
+        height: 720,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Chart Viewer',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF0A2540),
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Label: ${widget.chartData.labelColumn}  -  Value: ${widget.chartData.valueColumn}',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF4F6478),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      _ViewerIconButton(
+                        onPressed: () {
+                          setState(() {
+                            _visualType = _ChartVisualType.bar;
+                          });
+                        },
+                        tooltip: 'Bar chart',
+                        icon: Icons.bar_chart_rounded,
+                        isPrimary: _visualType == _ChartVisualType.bar,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: () {
+                          setState(() {
+                            _visualType = _ChartVisualType.pie;
+                          });
+                        },
+                        tooltip: 'Pie chart',
+                        icon: Icons.pie_chart_rounded,
+                        isPrimary: _visualType == _ChartVisualType.pie,
+                      ),
+                      _ViewerIconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Close',
+                        icon: Icons.close_rounded,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFFFFF), Color(0xFFF6FAFD)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFCFE0EC)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x140B3353),
+                        blurRadius: 18,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: _visualType == _ChartVisualType.bar
+                        ? BarChart(
+                            BarChartData(
+                              maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
+                              alignment: BarChartAlignment.spaceAround,
+                              gridData: const FlGridData(show: true),
+                              borderData: FlBorderData(show: false),
+                              titlesData: FlTitlesData(
+                                rightTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                topTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    reservedSize: 48,
+                                    getTitlesWidget: (value, meta) => Text(
+                                      value.toStringAsFixed(0),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    reservedSize: 56,
+                                    getTitlesWidget: (value, meta) {
+                                      final index = value.toInt();
+                                      if (index < 0 ||
+                                          index >= widget.chartData.points.length) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Transform.rotate(
+                                          angle: -0.42,
+                                          child: Text(
+                                            widget.chartData.points[index].label,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              barGroups: [
+                                for (var index = 0;
+                                    index < widget.chartData.points.length;
+                                    index++)
+                                  BarChartGroupData(
+                                    x: index,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: widget.chartData.points[index].value,
+                                        width: 28,
+                                        borderRadius: BorderRadius.circular(8),
+                                        color:
+                                            _chartColors[index % _chartColors.length],
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: PieChart(
+                                  PieChartData(
+                                    centerSpaceRadius: 48,
+                                    sectionsSpace: 3,
+                                    sections: [
+                                      for (var index = 0;
+                                          index < widget.chartData.points.length;
+                                          index++)
+                                        PieChartSectionData(
+                                          color:
+                                              _chartColors[index % _chartColors.length],
+                                          value:
+                                              widget.chartData.points[index].value,
+                                          radius: 120,
+                                          title: totalValue <= 0
+                                              ? widget.chartData.points[index].value
+                                                  .toStringAsFixed(0)
+                                              : '${((widget.chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
+                                          titleStyle: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Wrap(
+                                spacing: 14,
+                                runSpacing: 10,
+                                children: [
+                                  for (var index = 0;
+                                      index < widget.chartData.points.length;
+                                      index++)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 12,
+                                          height: 12,
+                                          decoration: BoxDecoration(
+                                            color: _chartColors[
+                                                index % _chartColors.length],
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${widget.chartData.points[index].label}: ${widget.chartData.points[index].value.toStringAsFixed(2)}',
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatViewerTimestamp(String value) {
+  final dateTime = DateTime.tryParse(value);
+  if (dateTime == null) {
+    return value;
+  }
+
+  final local = dateTime.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day $hour:$minute';
+}
+
+class _ViewerIconButton extends StatelessWidget {
+  const _ViewerIconButton({
+    required this.onPressed,
+    required this.tooltip,
+    required this.icon,
+    this.badge,
+    this.isPrimary = false,
+  });
+
+  final VoidCallback onPressed;
+  final String tooltip;
+  final IconData icon;
+  final String? badge;
+  final bool isPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconButton = Tooltip(
+      message: tooltip,
+      child: Container(
+        decoration: BoxDecoration(
+          color: isPrimary ? const Color(0xFF103B5C) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isPrimary
+                ? const Color(0xFF103B5C)
+                : const Color(0xFFD0DEE8),
+          ),
+        ),
+        child: IconButton(
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+          padding: EdgeInsets.zero,
+          onPressed: onPressed,
+          icon: Icon(
+            icon,
+            size: 18,
+            color: isPrimary ? Colors.white : const Color(0xFF27485F),
+          ),
+        ),
+      ),
+    );
+
+    if (badge == null) {
+      return iconButton;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        iconButton,
+        const SizedBox(width: 4),
+        Text(
+          badge!,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: const Color(0xFF486173),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Text('$label: $value'),
+    );
+  }
 }
 
 class _EditableQueryFilter {

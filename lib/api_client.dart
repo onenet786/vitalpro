@@ -22,6 +22,19 @@ class ApiClient {
     return AuthSession.fromJson(body);
   }
 
+  Future<MessageResult> resetPassword({
+    required String username,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final body = await _postJson('/api/auth/reset-password', {
+      'username': username,
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
+    return MessageResult.fromJson(body);
+  }
+
   Future<MessageResult> logout() async {
     final body = await _postJson('/api/auth/logout', const {});
     return MessageResult.fromJson(body);
