@@ -490,6 +490,7 @@ class ReportResult {
     required this.columns,
     required this.rows,
     required this.rowCount,
+    this.elapsedMs,
   });
 
   final String serverName;
@@ -499,6 +500,7 @@ class ReportResult {
   final List<String> columns;
   final List<Map<String, dynamic>> rows;
   final int rowCount;
+  final int? elapsedMs;
 
   factory ReportResult.fromJson(Map<String, dynamic> json) {
     return ReportResult(
@@ -517,6 +519,31 @@ class ReportResult {
           ? json['rowCount'] as int
           : int.tryParse('${json['rowCount'] ?? ''}') ??
                 (json['rows'] as List<dynamic>? ?? const []).length,
+      elapsedMs: json['elapsedMs'] is int
+          ? json['elapsedMs'] as int
+          : int.tryParse('${json['elapsedMs'] ?? json['elapsed_ms'] ?? ''}'),
+    );
+  }
+
+  ReportResult copyWith({
+    String? serverName,
+    String? queryName,
+    String? executedAt,
+    String? executedQuery,
+    List<String>? columns,
+    List<Map<String, dynamic>>? rows,
+    int? rowCount,
+    int? elapsedMs,
+  }) {
+    return ReportResult(
+      serverName: serverName ?? this.serverName,
+      queryName: queryName ?? this.queryName,
+      executedAt: executedAt ?? this.executedAt,
+      executedQuery: executedQuery ?? this.executedQuery,
+      columns: columns ?? this.columns,
+      rows: rows ?? this.rows,
+      rowCount: rowCount ?? this.rowCount,
+      elapsedMs: elapsedMs ?? this.elapsedMs,
     );
   }
 }

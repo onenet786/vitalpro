@@ -66,7 +66,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   bool _userIsActive = true;
   AdminPanelSection _adminSection = AdminPanelSection.dashboard;
   String _chartLabelColumn = _rowLabelColumnKey;
-  String? _chartValueColumn;
+  List<String> _chartValueColumns = const [];
   _ChartVisualType _chartVisualType = _ChartVisualType.pie;
   String? _statusMessage;
   String? _healthMessage;
@@ -268,6 +268,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   void _syncReportFilterControllers(SavedQuery? query) {
     final activeKeys = <String>{};
+    final todayText = _formatQueryDate(DateTime.now());
     for (final filter in query?.filters ?? const <QueryFilterDefinition>[]) {
       activeKeys.add(filter.key);
       final controller = _reportFilterControllers.putIfAbsent(
@@ -277,6 +278,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       if (controller.text.trim().isEmpty &&
           filter.defaultValue.trim().isNotEmpty) {
         controller.text = filter.defaultValue.trim();
+      } else if (controller.text.trim().isEmpty && _shouldAutoFillToday(filter)) {
+        controller.text = todayText;
       }
     }
 
@@ -287,6 +290,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _reportFilterControllers.remove(key)?.dispose();
       _reportFilterOptions.remove(key);
     }
+  }
+
+  bool _shouldAutoFillToday(QueryFilterDefinition filter) {
+    if (filter.type != QueryFilterType.date) {
+      return false;
+    }
+
+    final normalizedKey = filter.key.trim().toLowerCase();
+    return normalizedKey == 'fromdate' || normalizedKey == 'todate';
   }
 
   Future<void> _refreshReportFilterOptions({String? filterKey}) async {
@@ -401,14 +413,19 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     });
 
     try {
-      final result = await _apiClient.runReport(
+      final stopwatch = Stopwatch()..start();
+      final rawResult = await _apiClient.runReport(
         serverId: serverId,
         queryId: queryId,
         filters: _collectReportFilters(query),
       );
+      stopwatch.stop();
+      final result = rawResult.copyWith(elapsedMs: stopwatch.elapsedMilliseconds);
       debugPrint('================ REPORT QUERY DEBUG ================');
       debugPrint('Query: ${result.queryName}');
       debugPrint('Server: ${result.serverName}');
+      debugPrint('Executed At: ${result.executedAt}');
+      debugPrint('Time Taken: ${_formatElapsedDuration(result.elapsedMs)}');
       debugPrint('SQL:');
       debugPrint(result.executedQuery);
       debugPrint('====================================================');
@@ -420,7 +437,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       setState(() {
         _reportResult = result;
         _chartLabelColumn = chartDefaults.labelColumn;
-        _chartValueColumn = chartDefaults.valueColumn;
+        _chartValueColumns = chartDefaults.valueColumns;
         _isBusy = false;
         _statusMessage = 'Report returned ${result.rowCount} row(s).';
       });
@@ -1191,6 +1208,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   pw.Text('Query: ${report.queryName}'),
                   pw.Text('Server: ${report.serverName}'),
                   pw.Text('Executed: ${_formatTimestamp(report.executedAt)}'),
+                  pw.Text(
+                    'Time Taken: ${_formatElapsedDuration(report.elapsedMs)}',
+                  ),
                   pw.Text('Rows: ${report.rowCount}'),
                 ],
               ),
@@ -1286,9 +1306,25 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         actions: [
           Tooltip(
             message:
+                _healthMessage ??
+                (_apiBaseUrl.trim().isEmpty
+                    ? 'API connection is not configured.'
+                    : 'API configured.'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Icon(
+                (_healthMessage ?? '').toLowerCase().contains('could not') ||
+                        _apiBaseUrl.trim().isEmpty
+                    ? Icons.cloud_off_outlined
+                    : Icons.cloud_done_outlined,
+              ),
+            ),
+          ),
+          Tooltip(
+            message:
                 'Signed in as ${widget.session.user.username} (${widget.session.user.role.name})',
             child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
+              padding: EdgeInsets.symmetric(horizontal: 4),
               child: Icon(Icons.account_circle_outlined),
             ),
           ),
@@ -1320,7 +1356,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         : _deriveChartData(
             _reportResult!,
             labelColumn: _chartLabelColumn,
-            valueColumn: _chartValueColumn,
+            valueColumns: _chartValueColumns,
           );
 
     return LayoutBuilder(
@@ -1416,35 +1452,6 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFD8E2EC)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'API Status',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF355468),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _healthMessage ??
-                            (_apiBaseUrl.trim().isEmpty
-                                ? 'API connection is not configured.'
-                                : 'API configured.'),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             );
 
@@ -1492,14 +1499,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 color: const Color(0xFF0A2540),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Select one SQL Server at a time, choose a saved report query, then run the report.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             if (_servers.isEmpty)
               _buildEmptyMessage('No SQL servers saved yet.')
             else
@@ -1534,8 +1534,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                           server.label,
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
-                        subtitle: Text(
-                          '${server.host}:${server.port}  -  ${server.databaseName}',
+                        dense: true,
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 2,
                         ),
                       ),
                     );
@@ -1670,28 +1676,39 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             color: const Color(0xFF0A2540),
                           ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Table results, chart preview, and PDF actions appear here after a report runs.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF4F6478),
-                      ),
-                    ),
                   ],
                 );
                 final actions = Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
-                    OutlinedButton.icon(
+                    IconButton(
                       onPressed: result == null ? null : _printReport,
-                      icon: const Icon(Icons.print_outlined),
-                      label: const Text('Print'),
+                      icon: const Icon(Icons.print_outlined, size: 18),
+                      tooltip: 'Print',
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: const VisualDensity(
+                        horizontal: -4,
+                        vertical: -4,
+                      ),
                     ),
-                    FilledButton.tonalIcon(
+                    IconButton(
                       onPressed: result == null ? null : _exportReportPdf,
-                      icon: const Icon(Icons.picture_as_pdf_outlined),
-                      label: const Text('Export PDF'),
+                      icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                      tooltip: 'Export PDF',
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: const VisualDensity(
+                        horizontal: -4,
+                        vertical: -4,
+                      ),
                     ),
                   ],
                 );
@@ -1699,7 +1716,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 if (isCompact) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [summary, const SizedBox(height: 16), actions],
+                    children: [summary, const SizedBox(height: 8), actions],
                   );
                 }
 
@@ -1707,21 +1724,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(child: summary),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 8),
                     actions,
                   ],
                 );
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             if (result == null)
               _buildEmptyMessage(
                 'No report results yet. Run a saved query to load a table and optional chart.',
               )
             else ...[
               Wrap(
-                spacing: 12,
-                runSpacing: 12,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
                   _buildMetricChip('Server', result.serverName),
                   _buildMetricChip('Query', result.queryName),
@@ -1729,6 +1746,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _buildMetricChip(
                     'Executed',
                     _formatTimestamp(result.executedAt),
+                  ),
+                  _buildMetricChip(
+                    'Time Taken',
+                    _formatElapsedDuration(result.elapsedMs),
                   ),
                 ],
               ),
@@ -1742,10 +1763,22 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _buildChartCard(chartData),
                 ],
               ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               FilledButton.icon(
                 onPressed: () => _openReportViewer(result),
-                icon: const Icon(Icons.open_in_full_rounded),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  minimumSize: const Size(0, 34),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: const VisualDensity(
+                    horizontal: -2,
+                    vertical: -2,
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_full_rounded, size: 16),
                 label: const Text('Open Report Viewer'),
               ),
             ],
@@ -3438,12 +3471,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildChartCard(_ChartData chartData) {
     final maxValue = chartData.points
-        .map((point) => point.value)
+        .expand((point) => point.values.values)
         .fold<double>(0, (max, value) => value > max ? value : max);
-    final totalValue = chartData.points.fold<double>(
-      0,
-      (sum, point) => sum + point.value,
-    );
+    final seriesTotals = chartData.seriesTotals;
+    final totalValue = seriesTotals.values.fold<double>(0, (sum, value) => sum + value);
     final chartColors = [
       const Color(0xFF2563EB),
       const Color(0xFFDC2626),
@@ -3480,7 +3511,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Type: ${_chartVisualType == _ChartVisualType.bar ? 'Bar' : 'Pie'}  -  Label: ${chartData.labelColumn}  -  Value: ${chartData.valueColumn}',
+                    'Type: ${_chartVisualType == _ChartVisualType.bar ? 'Bar' : 'Pie'}  -  Label: ${chartData.labelColumn}  -  Values: ${chartData.valueColumns.join(', ')}',
                   ),
                 ],
               );
@@ -3542,6 +3573,41 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               context,
             ).textTheme.bodySmall?.copyWith(color: const Color(0xFF5E7688)),
           ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFFFF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFD8E2EC)),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.functions_rounded,
+                  size: 18,
+                  color: Color(0xFF355468),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Total Amount',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: const Color(0xFF355468),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  totalValue.toStringAsFixed(2),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: const Color(0xFF0A2540),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           GestureDetector(
             onDoubleTap: () => _openChartViewer(chartData),
@@ -3594,40 +3660,50 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                                 );
                               },
                             ),
-                          ),
                         ),
-                        barGroups: [
-                          for (var index = 0; index < chartData.points.length; index++)
-                            BarChartGroupData(
+                      ),
+                      barGroups: [
+                        for (var index = 0; index < chartData.points.length; index++)
+                          BarChartGroupData(
                               x: index,
+                              barsSpace: 6,
                               barRods: [
-                                BarChartRodData(
-                                  toY: chartData.points[index].value,
-                                  width: 20,
-                                  borderRadius: BorderRadius.circular(6),
-                                  color: chartColors[index % chartColors.length],
-                                ),
+                                for (var seriesIndex = 0;
+                                    seriesIndex < chartData.valueColumns.length;
+                                    seriesIndex++)
+                                  BarChartRodData(
+                                    toY: chartData.points[index].values[
+                                            chartData.valueColumns[seriesIndex]] ??
+                                        0,
+                                    width: 12,
+                                    borderRadius: BorderRadius.circular(6),
+                                    color: chartColors[
+                                        seriesIndex % chartColors.length],
+                                  ),
                               ],
                             ),
-                        ],
-                      ),
-                    )
-                  : PieChart(
+                      ],
+                    ),
+                  )
+                : PieChart(
                       PieChartData(
                         centerSpaceRadius: 34,
-                        sectionsSpace: 2,
-                        sections: [
-                          for (var index = 0; index < chartData.points.length; index++)
-                            PieChartSectionData(
-                              color: chartColors[index % chartColors.length],
-                              value: chartData.points[index].value,
-                              radius: 90,
-                              title: totalValue <= 0
-                                  ? chartData.points[index].value.toStringAsFixed(0)
-                                  : '${((chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
-                              titleStyle: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                      sectionsSpace: 2,
+                      sections: [
+                        for (var index = 0;
+                            index < chartData.valueColumns.length;
+                            index++)
+                          PieChartSectionData(
+                            color: chartColors[index % chartColors.length],
+                            value: seriesTotals[chartData.valueColumns[index]] ?? 0,
+                            radius: 90,
+                            title: totalValue <= 0
+                                ? (seriesTotals[chartData.valueColumns[index]] ?? 0)
+                                    .toStringAsFixed(0)
+                                : '${((((seriesTotals[chartData.valueColumns[index]] ?? 0) / totalValue) * 100)).toStringAsFixed(1)}%',
+                            titleStyle: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                                 color: Colors.white,
                               ),
                             ),
@@ -3642,7 +3718,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               spacing: 12,
               runSpacing: 8,
               children: [
-                for (var index = 0; index < chartData.points.length; index++)
+                for (var index = 0; index < chartData.valueColumns.length; index++)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -3656,13 +3732,36 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${chartData.points[index].label}: ${chartData.points[index].value.toStringAsFixed(2)}',
+                        '${chartData.valueColumns[index]}: ${(seriesTotals[chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
                       ),
                     ],
                   ),
               ],
             ),
           ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (var index = 0; index < chartData.valueColumns.length; index++)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: chartColors[index % chartColors.length],
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(chartData.valueColumns[index]),
+                  ],
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -3726,27 +3825,54 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   });
                 },
               );
-              final valueField = DropdownButtonFormField<String>(
-                initialValue: _chartValueColumn,
-                decoration: const InputDecoration(
-                  labelText: 'Value column',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
+              final valueField = Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFC7D2E0)),
                 ),
-                items: valueColumns
-                    .map(
-                      (column) => DropdownMenuItem<String>(
-                        value: column,
-                        child: Text(column),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Value columns',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: const Color(0xFF355468),
+                        fontWeight: FontWeight.w700,
                       ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _chartValueColumn = value;
-                  });
-                },
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: valueColumns
+                          .map(
+                            (column) => FilterChip(
+                              label: Text(column),
+                              selected: _chartValueColumns.contains(column),
+                              onSelected: (selected) {
+                                setState(() {
+                                  final next = List<String>.from(
+                                    _chartValueColumns,
+                                  );
+                                  if (selected) {
+                                    if (!next.contains(column)) {
+                                      next.add(column);
+                                    }
+                                  } else {
+                                    next.remove(column);
+                                  }
+                                  _chartValueColumns = next;
+                                });
+                              },
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ),
               );
 
               if (isCompact) {
@@ -3760,6 +3886,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               }
 
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: labelField),
                   const SizedBox(width: 12),
@@ -3783,11 +3910,40 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   _ChartSelection _resolveChartSelection(ReportResult result) {
     final valueColumns = _numericChartColumns(result);
-    final valueColumn = valueColumns.isEmpty ? null : valueColumns.first;
-    final labelColumn = result.columns.any((column) => column != valueColumn)
-        ? result.columns.firstWhere((column) => column != valueColumn)
+    final selectedValueColumns = _preferredChartValueColumns(valueColumns);
+    final labelColumn = result.columns.any(
+            (column) => !selectedValueColumns.contains(column))
+        ? result.columns.firstWhere(
+            (column) => !selectedValueColumns.contains(column),
+          )
         : _rowLabelColumnKey;
-    return _ChartSelection(labelColumn: labelColumn, valueColumn: valueColumn);
+    return _ChartSelection(
+      labelColumn: labelColumn,
+      valueColumns: selectedValueColumns,
+    );
+  }
+
+  List<String> _preferredChartValueColumns(List<String> valueColumns) {
+    final normalized = {
+      for (final column in valueColumns) column.toLowerCase(): column,
+    };
+    final cash = normalized['cash_amount'];
+    final credit = normalized['credit_amount'];
+    final total = normalized['total'];
+
+    if (cash != null && credit != null) {
+      return [cash, credit];
+    }
+
+    if (cash != null && total != null) {
+      return [cash];
+    }
+
+    if (credit != null && total != null) {
+      return [credit];
+    }
+
+    return valueColumns.take(3).toList(growable: false);
   }
 
   List<String> _numericChartColumns(ReportResult result) {
@@ -3799,35 +3955,48 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   _ChartData? _deriveChartData(
     ReportResult result, {
     required String labelColumn,
-    required String? valueColumn,
+    required List<String> valueColumns,
   }) {
     if (result.rows.isEmpty || result.columns.isEmpty) {
       return null;
     }
 
-    if (valueColumn == null) {
+    if (valueColumns.isEmpty) {
       return null;
     }
-    if (!result.columns.contains(valueColumn)) {
+    final safeValueColumns = valueColumns
+        .where((column) => result.columns.contains(column))
+        .toList(growable: false);
+    if (safeValueColumns.isEmpty) {
       return null;
     }
 
     const limit = 12;
     final points = <_ChartPoint>[];
+    final seriesTotals = <String, double>{
+      for (final column in safeValueColumns) column: 0,
+    };
     for (
       var index = 0;
       index < result.rows.length && points.length < limit;
       index++
     ) {
       final row = result.rows[index];
-      final value = _asDouble(row[valueColumn]);
-      if (value == null) {
+      final values = <String, double>{};
+      for (final column in safeValueColumns) {
+        final value = _asDouble(row[column]);
+        if (value != null) {
+          values[column] = value;
+          seriesTotals[column] = (seriesTotals[column] ?? 0) + value;
+        }
+      }
+      if (values.isEmpty) {
         continue;
       }
       final rawLabel = labelColumn == _rowLabelColumnKey
           ? 'Row ${index + 1}'
           : _formatCell(row[labelColumn]);
-      points.add(_ChartPoint(_trimLabel(rawLabel), value));
+      points.add(_ChartPoint(_trimLabel(rawLabel), values));
     }
 
     if (points.isEmpty) {
@@ -3836,9 +4005,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     return _ChartData(
       labelColumn: labelColumn == _rowLabelColumnKey ? 'Row number' : labelColumn,
-      valueColumn: valueColumn,
+      valueColumns: safeValueColumns,
       points: points,
       truncated: result.rows.length > points.length,
+      seriesTotals: seriesTotals,
     );
   }
 
@@ -3881,6 +4051,18 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     return '${local.year}-$month-$day $hour:$minute';
   }
 
+  String _formatElapsedDuration(int? elapsedMs) {
+    if (elapsedMs == null || elapsedMs < 0) {
+      return 'N/A';
+    }
+    final minutes = elapsedMs ~/ 60000;
+    final seconds = (elapsedMs % 60000) ~/ 1000;
+    final milliseconds = elapsedMs % 1000;
+    return '${minutes.toString().padLeft(2, '0')}m '
+        '${seconds.toString().padLeft(2, '0')}s '
+        '${milliseconds.toString().padLeft(3, '0')}ms';
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -3918,13 +4100,16 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildMetricChip(String label, String value) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: const Color(0xFFD8E2EC)),
       ),
-      child: Text('$label: $value'),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(fontSize: 12, height: 1.1),
+      ),
     );
   }
 
@@ -3958,29 +4143,34 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 class _ChartData {
   const _ChartData({
     required this.labelColumn,
-    required this.valueColumn,
+    required this.valueColumns,
     required this.points,
     required this.truncated,
+    required this.seriesTotals,
   });
 
   final String labelColumn;
-  final String valueColumn;
+  final List<String> valueColumns;
   final List<_ChartPoint> points;
   final bool truncated;
+  final Map<String, double> seriesTotals;
 }
 
 class _ChartPoint {
-  const _ChartPoint(this.label, this.value);
+  const _ChartPoint(this.label, this.values);
 
   final String label;
-  final double value;
+  final Map<String, double> values;
 }
 
 class _ChartSelection {
-  const _ChartSelection({required this.labelColumn, required this.valueColumn});
+  const _ChartSelection({
+    required this.labelColumn,
+    required this.valueColumns,
+  });
 
   final String labelColumn;
-  final String? valueColumn;
+  final List<String> valueColumns;
 }
 
 class _ReportViewerDialog extends StatefulWidget {
@@ -4127,6 +4317,10 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                     label: 'Executed',
                     value: _formatViewerTimestamp(widget.result.executedAt),
                   ),
+                  _MetricChip(
+                    label: 'Time Taken',
+                    value: _formatViewerElapsed(widget.result.elapsedMs),
+                  ),
                   _MetricChip(label: 'Rows', value: '${widget.result.rowCount}'),
                 ],
               ),
@@ -4263,12 +4457,10 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
   @override
   Widget build(BuildContext context) {
     final maxValue = widget.chartData.points
-        .map((point) => point.value)
+        .expand((point) => point.values.values)
         .fold<double>(0, (max, value) => value > max ? value : max);
-    final totalValue = widget.chartData.points.fold<double>(
-      0,
-      (sum, point) => sum + point.value,
-    );
+    final seriesTotals = widget.chartData.seriesTotals;
+    final totalValue = seriesTotals.values.fold<double>(0, (sum, value) => sum + value);
 
     return Dialog(
       insetPadding: const EdgeInsets.all(18),
@@ -4299,7 +4491,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Label: ${widget.chartData.labelColumn}  -  Value: ${widget.chartData.valueColumn}',
+                          'Label: ${widget.chartData.labelColumn}  -  Values: ${widget.chartData.valueColumns.join(', ')}',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF4F6478),
                           ),
@@ -4340,6 +4532,41 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                     ],
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFFFF),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFD8E2EC)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.functions_rounded,
+                      size: 18,
+                      color: Color(0xFF355468),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Total Amount',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: const Color(0xFF355468),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      totalValue.toStringAsFixed(2),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: const Color(0xFF0A2540),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               Expanded(
@@ -4419,14 +4646,22 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                                     index++)
                                   BarChartGroupData(
                                     x: index,
+                                    barsSpace: 6,
                                     barRods: [
-                                      BarChartRodData(
-                                        toY: widget.chartData.points[index].value,
-                                        width: 28,
-                                        borderRadius: BorderRadius.circular(8),
-                                        color:
-                                            _chartColors[index % _chartColors.length],
-                                      ),
+                                      for (var seriesIndex = 0;
+                                          seriesIndex <
+                                              widget.chartData.valueColumns.length;
+                                          seriesIndex++)
+                                        BarChartRodData(
+                                          toY: widget.chartData.points[index].values[
+                                                  widget.chartData.valueColumns[
+                                                      seriesIndex]] ??
+                                              0,
+                                          width: 16,
+                                          borderRadius: BorderRadius.circular(8),
+                                          color: _chartColors[
+                                              seriesIndex % _chartColors.length],
+                                        ),
                                     ],
                                   ),
                               ],
@@ -4441,18 +4676,18 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                                     sectionsSpace: 3,
                                     sections: [
                                       for (var index = 0;
-                                          index < widget.chartData.points.length;
+                                          index < widget.chartData.valueColumns.length;
                                           index++)
                                         PieChartSectionData(
                                           color:
                                               _chartColors[index % _chartColors.length],
                                           value:
-                                              widget.chartData.points[index].value,
+                                              seriesTotals[widget.chartData.valueColumns[index]] ?? 0,
                                           radius: 120,
                                           title: totalValue <= 0
-                                              ? widget.chartData.points[index].value
+                                              ? (seriesTotals[widget.chartData.valueColumns[index]] ?? 0)
                                                   .toStringAsFixed(0)
-                                              : '${((widget.chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
+                                              : '${((((seriesTotals[widget.chartData.valueColumns[index]] ?? 0) / totalValue) * 100)).toStringAsFixed(1)}%',
                                           titleStyle: const TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w700,
@@ -4469,7 +4704,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                                 runSpacing: 10,
                                 children: [
                                   for (var index = 0;
-                                      index < widget.chartData.points.length;
+                                      index < widget.chartData.valueColumns.length;
                                       index++)
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -4486,7 +4721,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          '${widget.chartData.points[index].label}: ${widget.chartData.points[index].value.toStringAsFixed(2)}',
+                                          '${widget.chartData.valueColumns[index]}: ${(seriesTotals[widget.chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
                                         ),
                                       ],
                                     ),
@@ -4517,6 +4752,18 @@ String _formatViewerTimestamp(String value) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '${local.year}-$month-$day $hour:$minute';
+}
+
+String _formatViewerElapsed(int? elapsedMs) {
+  if (elapsedMs == null || elapsedMs < 0) {
+    return 'N/A';
+  }
+  final minutes = elapsedMs ~/ 60000;
+  final seconds = (elapsedMs % 60000) ~/ 1000;
+  final milliseconds = elapsedMs % 1000;
+  return '${minutes.toString().padLeft(2, '0')}m '
+      '${seconds.toString().padLeft(2, '0')}s '
+      '${milliseconds.toString().padLeft(3, '0')}ms';
 }
 
 class _ViewerIconButton extends StatelessWidget {
