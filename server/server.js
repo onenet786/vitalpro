@@ -987,6 +987,16 @@ function applyQueryFilters(queryText, filterDefinitions, filterValues) {
   return sqlText;
 }
 
+function logReportExecution(serverConfig, queryConfig, queryText) {
+  console.log('================ REPORT QUERY DEBUG ================');
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Server: ${serverConfig.name} (#${serverConfig.id})`);
+  console.log(`Query: ${queryConfig.queryName} (#${queryConfig.id})`);
+  console.log('SQL:');
+  console.log(queryText);
+  console.log('====================================================');
+}
+
 async function runReport(serverId, queryId, filterValues = {}) {
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
@@ -1010,6 +1020,8 @@ async function runReport(serverId, queryId, filterValues = {}) {
     queryConfig.filters || [],
     filterValues,
   );
+
+  logReportExecution(serverConfig, queryConfig, queryText);
 
   const table = serverConfig.authenticationMode === 'windows'
       ? await runSqlcmdReportQuery(serverConfig, queryText)
