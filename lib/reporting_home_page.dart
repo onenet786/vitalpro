@@ -320,6 +320,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         queryId: queryId,
         filters: _collectReportFilters(query),
       );
+      debugPrint('================ REPORT QUERY DEBUG ================');
+      debugPrint('Query: ${result.queryName}');
+      debugPrint('Server: ${result.serverName}');
+      debugPrint('SQL:');
+      debugPrint(result.executedQuery);
+      debugPrint('====================================================');
       if (!mounted) {
         return;
       }

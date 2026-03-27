@@ -1031,6 +1031,7 @@ async function runReport(serverId, queryId, filterValues = {}) {
     serverName: serverConfig.name,
     queryName: queryConfig.queryName,
     executedAt: new Date().toISOString(),
+    executedQuery: queryText,
     columns: table.columns,
     rows: table.rows,
     rowCount: table.rows.length,

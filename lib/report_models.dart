@@ -465,6 +465,7 @@ class ReportResult {
     required this.serverName,
     required this.queryName,
     required this.executedAt,
+    required this.executedQuery,
     required this.columns,
     required this.rows,
     required this.rowCount,
@@ -473,6 +474,7 @@ class ReportResult {
   final String serverName;
   final String queryName;
   final String executedAt;
+  final String executedQuery;
   final List<String> columns;
   final List<Map<String, dynamic>> rows;
   final int rowCount;
@@ -482,6 +484,8 @@ class ReportResult {
       serverName: (json['serverName'] ?? json['server_name'] ?? '').toString(),
       queryName: (json['queryName'] ?? json['query_name'] ?? '').toString(),
       executedAt: (json['executedAt'] ?? json['executed_at'] ?? '').toString(),
+      executedQuery:
+          (json['executedQuery'] ?? json['executed_query'] ?? '').toString(),
       columns: (json['columns'] as List<dynamic>? ?? const [])
           .map((item) => item.toString())
           .toList(),
