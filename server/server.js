@@ -448,8 +448,10 @@ function normalizeFilterDefinitions(filters) {
     const key = String(filter?.key || '').trim();
     const label = String(filter?.label || '').trim();
     const type = String(filter?.type || 'text').trim().toLowerCase();
+    const inputType = String(filter?.inputType || 'text').trim().toLowerCase();
     const placeholder = String(filter?.placeholder || '').trim();
     const defaultValue = String(filter?.defaultValue || '').trim();
+    const optionsQuery = String(filter?.optionsQuery || '').trim();
 
     if (!key) {
       throw createHttpError(400, `Filter ${index + 1} is missing a key.`);
@@ -473,13 +475,29 @@ function normalizeFilterDefinitions(filters) {
       );
     }
 
+    if (!['text', 'dropdown'].includes(inputType)) {
+      throw createHttpError(
+        400,
+        `Filter "${key}" has an unsupported input type "${inputType}".`,
+      );
+    }
+
+    if (inputType === 'dropdown' && !optionsQuery) {
+      throw createHttpError(
+        400,
+        `Filter "${key}" must include an options query when using dropdown input.`,
+      );
+    }
+
     return {
       key,
       label,
       type,
+      inputType,
       isRequired: toBoolean(filter?.isRequired),
       placeholder,
       defaultValue,
+      optionsQuery,
     };
   });
 }
@@ -913,6 +931,9 @@ async function getUserByUsername(username) {
 
 function formatDateLiteral(value) {
   const normalized = String(value || '').trim();
+  if (!normalized) {
+    return 'NULL';
+  }
   if (!/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(normalized)) {
     throw createHttpError(
       400,
@@ -926,7 +947,7 @@ function formatDateLiteral(value) {
 function formatNumberLiteral(value, key) {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    return '';
+    return 'NULL';
   }
 
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
@@ -969,10 +990,6 @@ function applyQueryFilters(queryText, filterDefinitions, filterValues) {
 
     if (filter.isRequired && !effectiveValue) {
       throw createHttpError(400, `Filter "${filter.label}" is required.`);
-    }
-
-    if (!effectiveValue) {
-      continue;
     }
 
     const literal = toSqlLiteral(filter, effectiveValue);
@@ -1036,6 +1053,62 @@ async function runReport(serverId, queryId, filterValues = {}) {
     rows: table.rows,
     rowCount: table.rows.length,
   };
+}
+
+async function fetchReportFilterOptions(serverId, queryId, filterKey, filterValues = {}) {
+  const serverConfig = await getServerById(serverId);
+  if (!serverConfig) {
+    throw createHttpError(404, 'Selected SQL server was not found.');
+  }
+
+  const queryConfig = await getQueryById(queryId);
+  if (!queryConfig) {
+    throw createHttpError(404, 'Selected query was not found.');
+  }
+
+  const filter = (queryConfig.filters || []).find((item) => item.key === filterKey);
+  if (!filter) {
+    throw createHttpError(404, `Filter "${filterKey}" was not found on the selected query.`);
+  }
+
+  if (filter.inputType !== 'dropdown' || !filter.optionsQuery) {
+    throw createHttpError(400, `Filter "${filterKey}" is not configured for dropdown values.`);
+  }
+
+  if (!isReadOnlyQuery(filter.optionsQuery)) {
+    throw createHttpError(
+      400,
+      `Filter "${filterKey}" options query must be a read-only SELECT statement.`,
+    );
+  }
+
+  const effectiveFilterValues = {
+    ...(filterValues || {}),
+    [filterKey]: filterValues?.[filterKey] || '',
+  };
+  const optionsSql = applyQueryFilters(
+    filter.optionsQuery,
+    queryConfig.filters || [],
+    effectiveFilterValues,
+  );
+  const table = serverConfig.authenticationMode === 'windows'
+      ? await runSqlcmdReportQuery(serverConfig, optionsSql)
+      : await runMssqlQuery(serverConfig, optionsSql);
+  const firstColumn = table.columns[0];
+
+  if (!firstColumn) {
+    return { options: [] };
+  }
+
+  const options = Array.from(
+    new Set(
+      table.rows
+          .map((row) => String(row[firstColumn] ?? '').trim())
+          .filter((value) => value.length > 0),
+    ),
+  );
+
+  return { options };
 }
 
 async function runMssqlQuery(serverConfig, queryText) {
@@ -1459,6 +1532,30 @@ const server = http.createServer(async (req, res) => {
         res,
         200,
         await runReport(serverId, queryId, payload.filters || {}),
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/api/reporting/filter-options') {
+      requireAuth(req);
+      const payload = await readJsonBody(req);
+      const serverId = parseInt(payload.serverId, 10);
+      const queryId = parseInt(payload.queryId, 10);
+      const filterKey = String(payload.filterKey || '').trim();
+
+      if (!Number.isFinite(serverId) || !Number.isFinite(queryId) || !filterKey) {
+        throw createHttpError(400, 'serverId, queryId, and filterKey are required.');
+      }
+
+      sendJson(
+        res,
+        200,
+        await fetchReportFilterOptions(
+          serverId,
+          queryId,
+          filterKey,
+          payload.filters || {},
+        ),
       );
       return;
     }

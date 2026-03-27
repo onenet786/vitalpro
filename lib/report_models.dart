@@ -4,6 +4,8 @@ enum UserRole { admin, reporting }
 
 enum QueryFilterType { text, number, date }
 
+enum QueryFilterInputType { text, dropdown }
+
 UserRole _parseUserRole(dynamic value) {
   return '${value ?? ''}'.toLowerCase() == 'admin'
       ? UserRole.admin
@@ -312,17 +314,21 @@ class QueryFilterDefinition {
     required this.key,
     required this.label,
     this.type = QueryFilterType.text,
+    this.inputType = QueryFilterInputType.text,
     this.isRequired = false,
     this.placeholder = '',
     this.defaultValue = '',
+    this.optionsQuery = '',
   });
 
   final String key;
   final String label;
   final QueryFilterType type;
+  final QueryFilterInputType inputType;
   final bool isRequired;
   final String placeholder;
   final String defaultValue;
+  final String optionsQuery;
 
   factory QueryFilterDefinition.fromJson(Map<String, dynamic> json) {
     final typeValue = (json['type'] ?? '').toString().toLowerCase();
@@ -331,11 +337,18 @@ class QueryFilterDefinition {
       'date' => QueryFilterType.date,
       _ => QueryFilterType.text,
     };
+    final inputTypeValue = (json['inputType'] ?? json['input_type'] ?? '')
+        .toString()
+        .toLowerCase();
+    final inputType = inputTypeValue == 'dropdown'
+        ? QueryFilterInputType.dropdown
+        : QueryFilterInputType.text;
 
     return QueryFilterDefinition(
       key: (json['key'] ?? '').toString(),
       label: (json['label'] ?? '').toString(),
       type: type,
+      inputType: inputType,
       isRequired:
           json['isRequired'] == true ||
           json['is_required'] == true ||
@@ -344,6 +357,8 @@ class QueryFilterDefinition {
       placeholder: (json['placeholder'] ?? '').toString(),
       defaultValue: (json['defaultValue'] ?? json['default_value'] ?? '')
           .toString(),
+      optionsQuery:
+          (json['optionsQuery'] ?? json['options_query'] ?? '').toString(),
     );
   }
 
@@ -352,9 +367,11 @@ class QueryFilterDefinition {
       'key': key,
       'label': label,
       'type': type.name,
+      'inputType': inputType.name,
       'isRequired': isRequired,
       'placeholder': placeholder,
       'defaultValue': defaultValue,
+      'optionsQuery': optionsQuery,
     };
   }
 
@@ -362,17 +379,21 @@ class QueryFilterDefinition {
     String? key,
     String? label,
     QueryFilterType? type,
+    QueryFilterInputType? inputType,
     bool? isRequired,
     String? placeholder,
     String? defaultValue,
+    String? optionsQuery,
   }) {
     return QueryFilterDefinition(
       key: key ?? this.key,
       label: label ?? this.label,
       type: type ?? this.type,
+      inputType: inputType ?? this.inputType,
       isRequired: isRequired ?? this.isRequired,
       placeholder: placeholder ?? this.placeholder,
       defaultValue: defaultValue ?? this.defaultValue,
+      optionsQuery: optionsQuery ?? this.optionsQuery,
     );
   }
 }

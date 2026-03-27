@@ -1,13 +1,13 @@
-<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="vitalproGradient" x1="34" y1="28" x2="222" y2="228" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0A6D88"/>
-      <stop offset="0.55" stop-color="#0E496A"/>
-      <stop offset="1" stop-color="#102B46"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A6D88"/>
+      <stop offset="52%" stop-color="#0E496A"/>
+      <stop offset="100%" stop-color="#102B46"/>
     </linearGradient>
   </defs>
-  <rect x="18" y="18" width="220" height="220" rx="56" fill="url(#vitalproGradient)"/>
-  <rect x="52" y="42" width="152" height="172" rx="38" fill="white" fill-opacity="0.12"/>
-  <path d="M72 76L120 186L184 76" stroke="white" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M54 144H86L104 118L124 162L144 102L164 144H202" stroke="#7BE0D6" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="72" y="72" width="880" height="880" rx="250" fill="url(#bg)"/>
+  <rect x="250" y="200" width="524" height="600" rx="150" fill="rgba(255,255,255,0.12)"/>
+  <path d="M300 310 L480 720 L730 310" fill="none" stroke="#FFFFFF" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M240 575 L338 575 L402 485 L486 650 L564 430 L645 575 L785 575" fill="none" stroke="#7BE0D6" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

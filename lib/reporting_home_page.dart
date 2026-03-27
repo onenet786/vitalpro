@@ -16,6 +16,8 @@ enum HomeMode { reporting, admin }
 
 enum AdminPanelSection { dashboard, companies, users, servers, queries }
 
+enum _ChartVisualType { bar, pie }
+
 class ReportingHomePage extends StatefulWidget {
   const ReportingHomePage({
     super.key,
@@ -34,6 +36,7 @@ class ReportingHomePage extends StatefulWidget {
 
 class _ReportingHomePageState extends State<ReportingHomePage> {
   static const _defaultServerPreferenceKey = 'default_reporting_server_id';
+  static const _rowLabelColumnKey = '__row__';
 
   final _companyNameController = TextEditingController();
   final _companyAddressController = TextEditingController();
@@ -50,6 +53,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   final _userPasswordController = TextEditingController();
 
   final Map<String, TextEditingController> _reportFilterControllers = {};
+  final Map<String, List<String>> _reportFilterOptions = {};
   List<_EditableQueryFilter> _queryFilters = [];
   AuthenticationMode _serverAuthenticationMode = AuthenticationMode.sqlServer;
   UserRole _userRole = UserRole.reporting;
@@ -61,8 +65,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   bool _showQueryChartByDefault = false;
   bool _userIsActive = true;
   AdminPanelSection _adminSection = AdminPanelSection.dashboard;
+  String _chartLabelColumn = _rowLabelColumnKey;
+  String? _chartValueColumn;
+  _ChartVisualType _chartVisualType = _ChartVisualType.bar;
   String? _statusMessage;
   String? _healthMessage;
+  Set<String> _loadingReportFilterOptions = const {};
   int? _editingCompanyId;
   int? _selectedAssignedCompanyId;
   int? _selectedServerId;
@@ -174,6 +182,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _isLoading = false;
       });
 
+      await _refreshReportFilterOptions();
+
       if (_isAdminUser && _editingCompanyId == null) {
         _resetCompanyForm();
       }
@@ -253,6 +263,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _showChart = query?.showChartByDefault ?? false;
       _reportResult = null;
     });
+    _refreshReportFilterOptions();
   }
 
   void _syncReportFilterControllers(SavedQuery? query) {
@@ -274,6 +285,81 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         .toList(growable: false);
     for (final key in staleKeys) {
       _reportFilterControllers.remove(key)?.dispose();
+      _reportFilterOptions.remove(key);
+    }
+  }
+
+  Future<void> _refreshReportFilterOptions({String? filterKey}) async {
+    final serverId = _selectedServerId;
+    final query = _selectedQuery;
+    final queryId = query?.id;
+    if (serverId == null || query == null || queryId == null) {
+      if (mounted && _reportFilterOptions.isNotEmpty) {
+        setState(() {
+          _reportFilterOptions.clear();
+          _loadingReportFilterOptions = const {};
+        });
+      }
+      return;
+    }
+
+    final targets = query.filters
+        .where(
+          (filter) =>
+              filter.inputType == QueryFilterInputType.dropdown &&
+              filter.optionsQuery.trim().isNotEmpty &&
+              (filterKey == null || filter.key == filterKey),
+        )
+        .toList(growable: false);
+    if (targets.isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingReportFilterOptions = {
+          ..._loadingReportFilterOptions,
+          ...targets.map((filter) => filter.key),
+        };
+      });
+    }
+
+    final activeFilters = _collectReportFilters(query);
+    for (final filter in targets) {
+      try {
+        final options = await _apiClient.fetchReportFilterOptions(
+          serverId: serverId,
+          queryId: queryId,
+          filterKey: filter.key,
+          filters: activeFilters,
+        );
+        if (!mounted) {
+          return;
+        }
+
+        final controller = _reportFilterControllers[filter.key];
+        setState(() {
+          _reportFilterOptions[filter.key] = options;
+          _loadingReportFilterOptions = Set<String>.from(
+            _loadingReportFilterOptions,
+          )..remove(filter.key);
+          if (controller != null &&
+              controller.text.trim().isNotEmpty &&
+              !options.contains(controller.text.trim())) {
+            controller.clear();
+          }
+        });
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _reportFilterOptions[filter.key] = const [];
+          _loadingReportFilterOptions = Set<String>.from(
+            _loadingReportFilterOptions,
+          )..remove(filter.key);
+        });
+      }
     }
   }
 
@@ -330,8 +416,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         return;
       }
 
+      final chartDefaults = _resolveChartSelection(result);
       setState(() {
         _reportResult = result;
+        _chartLabelColumn = chartDefaults.labelColumn;
+        _chartValueColumn = chartDefaults.valueColumn;
         _isBusy = false;
         _statusMessage = 'Report returned ${result.rowCount} row(s).';
       });
@@ -902,6 +991,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     controller.text = _formatQueryDate(selectedDate);
     setState(() {});
+    _refreshReportFilterOptions();
   }
 
   DateTime? _parseQueryDate(String value) {
@@ -1222,33 +1312,44 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Widget _buildReportingSection() {
     final chartData = _reportResult == null
         ? null
-        : _deriveChartData(_reportResult!);
+        : _deriveChartData(
+            _reportResult!,
+            labelColumn: _chartLabelColumn,
+            valueColumn: _chartValueColumn,
+          );
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1100;
+        final horizontalPadding = constraints.maxWidth >= 1400 ? 8.0 : 12.0;
+        final verticalPadding = constraints.maxWidth >= 1400 ? 10.0 : 14.0;
+        final panelGap = isWide ? 12.0 : 16.0;
         final leftPanel = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildCompanyCard(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             _buildFilterCard(),
           ],
         );
         final rightPanel = _buildResultsCard(chartData);
 
         return Padding(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
+          ),
           child: isWide
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(flex: 4, child: leftPanel),
-                    const SizedBox(width: 20),
-                    Expanded(flex: 7, child: rightPanel),
+                    Expanded(flex: 3, child: leftPanel),
+                    SizedBox(width: panelGap),
+                    Expanded(flex: 8, child: rightPanel),
                   ],
                 )
               : ListView(
-                  children: [leftPanel, const SizedBox(height: 20), rightPanel],
+                  children: [leftPanel, SizedBox(height: panelGap), rightPanel],
                 ),
         );
       },
@@ -1261,7 +1362,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(18),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 560;
@@ -1310,10 +1411,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(18),
@@ -1347,7 +1448,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   identityBlock,
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   detailsBlock,
                 ],
               );
@@ -1357,7 +1458,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Center(child: identityBlock),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 Center(child: detailsBlock),
               ],
             );
@@ -1375,7 +1476,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1393,7 +1494,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 context,
               ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             if (_servers.isEmpty)
               _buildEmptyMessage('No SQL servers saved yet.')
             else
@@ -1404,6 +1505,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     _selectedServerId = value;
                     _reportResult = null;
                   });
+                  _refreshReportFilterOptions();
                 },
                 child: Column(
                   children: _servers.map((server) {
@@ -1471,7 +1573,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 );
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             DropdownButtonFormField<int>(
               initialValue: _selectedQueryId,
               items: _queries
@@ -1492,10 +1594,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ),
             ),
             if (selectedQuery != null && selectedQuery.filters.isNotEmpty) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               ...selectedQuery.filters.map(_buildReportFilterInput),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               value: _showChart,
@@ -1517,7 +1619,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               const SizedBox(height: 8),
               _buildStatusBanner(_statusMessage!),
             ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -1545,7 +1647,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1606,7 +1708,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 );
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             if (result == null)
               _buildEmptyMessage(
                 'No report results yet. Run a saved query to load a table and optional chart.',
@@ -1626,15 +1728,16 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ],
               ),
               if (_showChart) ...[
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 if (chartData == null)
-                  _buildStatusBanner(
-                    'Chart preview is enabled, but the result set needs at least one numeric column.',
-                  )
-                else
+                  _buildStatusBanner(_buildChartUnavailableMessage(result))
+                else ...[
+                  _buildChartOptionsCard(result),
+                  const SizedBox(height: 12),
                   _buildChartCard(chartData),
+                ],
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _buildTable(result),
             ],
           ],
@@ -1645,7 +1748,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildAdminSection() {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       child: ListView(children: _buildAdminSectionChildren()),
     );
   }
@@ -2858,7 +2961,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
             const SizedBox(height: 12),
             _buildStatusBanner(
-              'Use placeholders like {{DocumentDate}} inside the SQL. The reporting screen will show matching filter fields above Run Report.',
+              'Use placeholders like {{DocumentDate}} inside the SQL. Filters can be text/date inputs or dropdowns backed by an options query, and the reporting screen will show matching filter fields above Run Report.',
             ),
             const SizedBox(height: 20),
             Row(
@@ -3055,10 +3158,68 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       );
     }
 
+    if (filter.inputType == QueryFilterInputType.dropdown) {
+      final options = _reportFilterOptions[filter.key] ?? const <String>[];
+      final isLoading = _loadingReportFilterOptions.contains(filter.key);
+      final currentValue = controller.text.trim();
+      final effectiveValue = currentValue.isEmpty || options.contains(currentValue)
+          ? currentValue
+          : null;
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: DropdownButtonFormField<String>(
+          initialValue: effectiveValue?.isEmpty == true ? null : effectiveValue,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: filter.placeholder.isEmpty
+                ? 'Select ${filter.label.toLowerCase()}'
+                : filter.placeholder,
+            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.white,
+            suffixIcon: isLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    tooltip: 'Refresh values',
+                    onPressed: () => _refreshReportFilterOptions(filterKey: filter.key),
+                    icon: const Icon(Icons.refresh_outlined),
+                  ),
+          ),
+          items: [
+            if (!filter.isRequired)
+              const DropdownMenuItem<String>(
+                value: '',
+                child: Text('All'),
+              ),
+            ...options.map(
+              (option) => DropdownMenuItem<String>(
+                value: option,
+                child: Text(option),
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            controller.text = (value ?? '').trim();
+            setState(() {});
+            _refreshReportFilterOptions();
+          },
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: controller,
+        onChanged: (_) => _refreshReportFilterOptions(),
         keyboardType: filter.type == QueryFilterType.number
             ? const TextInputType.numberWithOptions(decimal: true, signed: true)
             : TextInputType.text,
@@ -3140,6 +3301,34 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
           ),
           const SizedBox(height: 12),
+          DropdownButtonFormField<QueryFilterInputType>(
+            initialValue: filter.inputType,
+            items: QueryFilterInputType.values
+                .map(
+                  (inputType) => DropdownMenuItem<QueryFilterInputType>(
+                    value: inputType,
+                    child: Text(inputType.name),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) {
+                return;
+              }
+              final nextFilter = filter.copyWith(inputType: value);
+              setState(() {
+                _queryFilters[index] = nextFilter;
+              });
+              filter.dispose();
+            },
+            decoration: const InputDecoration(
+              labelText: 'Input mode',
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
           _buildTextField(
             controller: filter.placeholderController,
             label: 'Placeholder',
@@ -3155,6 +3344,16 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ? '09-Feb-2026'
                 : 'Optional default',
           ),
+          if (filter.inputType == QueryFilterInputType.dropdown) ...[
+            const SizedBox(height: 12),
+            _buildTextField(
+              controller: filter.optionsQueryController,
+              label: 'Options query',
+              hint:
+                  'SELECT DISTINCT SubsideryTitle FROM ... WHERE CAST(DocumentDate AS date) = {{DocumentDate}} ORDER BY 1',
+              maxLines: 5,
+            ),
+          ],
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             value: filter.isRequired,
@@ -3211,10 +3410,24 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     final maxValue = chartData.points
         .map((point) => point.value)
         .fold<double>(0, (max, value) => value > max ? value : max);
+    final totalValue = chartData.points.fold<double>(
+      0,
+      (sum, point) => sum + point.value,
+    );
+    final chartColors = [
+      const Color(0xFF2563EB),
+      const Color(0xFFDC2626),
+      const Color(0xFF059669),
+      const Color(0xFFD97706),
+      const Color(0xFF7C3AED),
+      const Color(0xFFDB2777),
+      const Color(0xFF0891B2),
+      const Color(0xFF65A30D),
+    ];
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(20),
@@ -3223,15 +3436,65 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Chart Preview',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Label: ${chartData.labelColumn}  -  Value: ${chartData.valueColumn}',
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 640;
+              final titleBlock = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Chart Preview',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Type: ${_chartVisualType == _ChartVisualType.bar ? 'Bar' : 'Pie'}  -  Label: ${chartData.labelColumn}  -  Value: ${chartData.valueColumn}',
+                  ),
+                ],
+              );
+              final actionBlock = SegmentedButton<_ChartVisualType>(
+                segments: const [
+                  ButtonSegment<_ChartVisualType>(
+                    value: _ChartVisualType.bar,
+                    icon: Icon(Icons.bar_chart_rounded),
+                    label: Text('Bar'),
+                  ),
+                  ButtonSegment<_ChartVisualType>(
+                    value: _ChartVisualType.pie,
+                    icon: Icon(Icons.pie_chart_rounded),
+                    label: Text('Pie'),
+                  ),
+                ],
+                selected: {_chartVisualType},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _chartVisualType = selection.first;
+                  });
+                },
+              );
+
+              if (isCompact) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    titleBlock,
+                    const SizedBox(height: 12),
+                    actionBlock,
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: titleBlock),
+                  const SizedBox(width: 12),
+                  actionBlock,
+                ],
+              );
+            },
           ),
           if (chartData.truncated) ...[
             const SizedBox(height: 4),
@@ -3245,99 +3508,268 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           const SizedBox(height: 16),
           SizedBox(
             height: 260,
-            child: BarChart(
-              BarChartData(
-                maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
-                alignment: BarChartAlignment.spaceAround,
-                gridData: const FlGridData(show: true),
-                borderData: FlBorderData(show: false),
-                titlesData: FlTitlesData(
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 44,
-                      getTitlesWidget: (value, meta) => Text(
-                        value.toStringAsFixed(0),
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 48,
-                      getTitlesWidget: (value, meta) {
-                        final index = value.toInt();
-                        if (index < 0 || index >= chartData.points.length) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Transform.rotate(
-                            angle: -0.5,
-                            child: Text(
-                              chartData.points[index].label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+            child: _chartVisualType == _ChartVisualType.bar
+                ? BarChart(
+                    BarChartData(
+                      maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
+                      alignment: BarChartAlignment.spaceAround,
+                      gridData: const FlGridData(show: true),
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 44,
+                            getTitlesWidget: (value, meta) => Text(
+                              value.toStringAsFixed(0),
                               style: const TextStyle(fontSize: 11),
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                barGroups: [
-                  for (var index = 0; index < chartData.points.length; index++)
-                    BarChartGroupData(
-                      x: index,
-                      barRods: [
-                        BarChartRodData(
-                          toY: chartData.points[index].value,
-                          width: 20,
-                          borderRadius: BorderRadius.circular(6),
-                          color: const Color(0xFF0B5D7A),
                         ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 48,
+                            getTitlesWidget: (value, meta) {
+                              final index = value.toInt();
+                              if (index < 0 || index >= chartData.points.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Transform.rotate(
+                                  angle: -0.5,
+                                  child: Text(
+                                    chartData.points[index].label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      barGroups: [
+                        for (var index = 0; index < chartData.points.length; index++)
+                          BarChartGroupData(
+                            x: index,
+                            barRods: [
+                              BarChartRodData(
+                                toY: chartData.points[index].value,
+                                width: 20,
+                                borderRadius: BorderRadius.circular(6),
+                                color: chartColors[index % chartColors.length],
+                              ),
+                            ],
+                          ),
                       ],
                     ),
-                ],
-              ),
+                  )
+                : PieChart(
+                    PieChartData(
+                      centerSpaceRadius: 34,
+                      sectionsSpace: 2,
+                      sections: [
+                        for (var index = 0; index < chartData.points.length; index++)
+                          PieChartSectionData(
+                            color: chartColors[index % chartColors.length],
+                            value: chartData.points[index].value,
+                            radius: 90,
+                            title: totalValue <= 0
+                                ? chartData.points[index].value.toStringAsFixed(0)
+                                : '${((chartData.points[index].value / totalValue) * 100).toStringAsFixed(1)}%',
+                            titleStyle: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+          if (_chartVisualType == _ChartVisualType.pie) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                for (var index = 0; index < chartData.points.length; index++)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: chartColors[index % chartColors.length],
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${chartData.points[index].label}: ${chartData.points[index].value.toStringAsFixed(2)}',
+                      ),
+                    ],
+                  ),
+              ],
             ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartOptionsCard(ReportResult result) {
+    final labelOptions = [
+      const DropdownMenuItem<String>(
+        value: _rowLabelColumnKey,
+        child: Text('Row number'),
+      ),
+      ...result.columns.map(
+        (column) => DropdownMenuItem<String>(value: column, child: Text(column)),
+      ),
+    ];
+    final valueColumns = _numericChartColumns(result);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFD8E2EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Chart Options',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Choose which columns to use for chart labels and values at runtime.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 640;
+              final labelField = DropdownButtonFormField<String>(
+                initialValue: _chartLabelColumn,
+                decoration: const InputDecoration(
+                  labelText: 'Label column',
+                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                items: labelOptions,
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() {
+                    _chartLabelColumn = value;
+                  });
+                },
+              );
+              final valueField = DropdownButtonFormField<String>(
+                initialValue: _chartValueColumn,
+                decoration: const InputDecoration(
+                  labelText: 'Value column',
+                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                items: valueColumns
+                    .map(
+                      (column) => DropdownMenuItem<String>(
+                        value: column,
+                        child: Text(column),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _chartValueColumn = value;
+                  });
+                },
+              );
+
+              if (isCompact) {
+                return Column(
+                  children: [
+                    labelField,
+                    const SizedBox(height: 12),
+                    valueField,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: labelField),
+                  const SizedBox(width: 12),
+                  Expanded(child: valueField),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
 
-  _ChartData? _deriveChartData(ReportResult result) {
+  String _buildChartUnavailableMessage(ReportResult result) {
+    final valueColumns = _numericChartColumns(result);
+    if (valueColumns.isEmpty) {
+      return 'Chart preview is enabled, but the result set needs at least one numeric column.';
+    }
+    return 'Chart preview is enabled, but the selected chart columns do not produce any numeric points.';
+  }
+
+  _ChartSelection _resolveChartSelection(ReportResult result) {
+    final valueColumns = _numericChartColumns(result);
+    final valueColumn = valueColumns.isEmpty ? null : valueColumns.first;
+    final labelColumn = result.columns.any((column) => column != valueColumn)
+        ? result.columns.firstWhere((column) => column != valueColumn)
+        : _rowLabelColumnKey;
+    return _ChartSelection(labelColumn: labelColumn, valueColumn: valueColumn);
+  }
+
+  List<String> _numericChartColumns(ReportResult result) {
+    return result.columns
+        .where((column) => result.rows.any((row) => _asDouble(row[column]) != null))
+        .toList();
+  }
+
+  _ChartData? _deriveChartData(
+    ReportResult result, {
+    required String labelColumn,
+    required String? valueColumn,
+  }) {
     if (result.rows.isEmpty || result.columns.isEmpty) {
       return null;
-    }
-
-    String? valueColumn;
-    for (final column in result.columns) {
-      if (result.rows.any((row) => _asDouble(row[column]) != null)) {
-        valueColumn = column;
-        break;
-      }
     }
 
     if (valueColumn == null) {
       return null;
     }
-
-    String? labelColumn;
-    for (final column in result.columns) {
-      if (column != valueColumn) {
-        labelColumn = column;
-        break;
-      }
+    if (!result.columns.contains(valueColumn)) {
+      return null;
     }
 
     const limit = 12;
@@ -3352,7 +3784,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       if (value == null) {
         continue;
       }
-      final rawLabel = labelColumn == null
+      final rawLabel = labelColumn == _rowLabelColumnKey
           ? 'Row ${index + 1}'
           : _formatCell(row[labelColumn]);
       points.add(_ChartPoint(_trimLabel(rawLabel), value));
@@ -3363,7 +3795,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     }
 
     return _ChartData(
-      labelColumn: labelColumn ?? 'Row',
+      labelColumn: labelColumn == _rowLabelColumnKey ? 'Row number' : labelColumn,
       valueColumn: valueColumn,
       points: points,
       truncated: result.rows.length > points.length,
@@ -3504,27 +3936,39 @@ class _ChartPoint {
   final double value;
 }
 
+class _ChartSelection {
+  const _ChartSelection({required this.labelColumn, required this.valueColumn});
+
+  final String labelColumn;
+  final String? valueColumn;
+}
+
 class _EditableQueryFilter {
   _EditableQueryFilter({
     String key = '',
     String label = '',
     this.type = QueryFilterType.text,
+    this.inputType = QueryFilterInputType.text,
     this.isRequired = false,
     String placeholder = '',
     String defaultValue = '',
+    String optionsQuery = '',
   }) : keyController = TextEditingController(text: key),
        labelController = TextEditingController(text: label),
        placeholderController = TextEditingController(text: placeholder),
-       defaultValueController = TextEditingController(text: defaultValue);
+       defaultValueController = TextEditingController(text: defaultValue),
+       optionsQueryController = TextEditingController(text: optionsQuery);
 
   factory _EditableQueryFilter.fromDefinition(QueryFilterDefinition filter) {
     return _EditableQueryFilter(
       key: filter.key,
       label: filter.label,
       type: filter.type,
+      inputType: filter.inputType,
       isRequired: filter.isRequired,
       placeholder: filter.placeholder,
       defaultValue: filter.defaultValue,
+      optionsQuery: filter.optionsQuery,
     );
   }
 
@@ -3532,17 +3976,25 @@ class _EditableQueryFilter {
   final TextEditingController labelController;
   final TextEditingController placeholderController;
   final TextEditingController defaultValueController;
+  final TextEditingController optionsQueryController;
   final QueryFilterType type;
+  final QueryFilterInputType inputType;
   final bool isRequired;
 
-  _EditableQueryFilter copyWith({QueryFilterType? type, bool? isRequired}) {
+  _EditableQueryFilter copyWith({
+    QueryFilterType? type,
+    QueryFilterInputType? inputType,
+    bool? isRequired,
+  }) {
     return _EditableQueryFilter(
       key: keyController.text,
       label: labelController.text,
       type: type ?? this.type,
+      inputType: inputType ?? this.inputType,
       isRequired: isRequired ?? this.isRequired,
       placeholder: placeholderController.text,
       defaultValue: defaultValueController.text,
+      optionsQuery: optionsQueryController.text,
     );
   }
 
@@ -3551,9 +4003,11 @@ class _EditableQueryFilter {
       key: keyController.text.trim(),
       label: labelController.text.trim(),
       type: type,
+      inputType: inputType,
       isRequired: isRequired,
       placeholder: placeholderController.text.trim(),
       defaultValue: defaultValueController.text.trim(),
+      optionsQuery: optionsQueryController.text.trim(),
     );
   }
 
@@ -3562,5 +4016,6 @@ class _EditableQueryFilter {
     labelController.dispose();
     placeholderController.dispose();
     defaultValueController.dispose();
+    optionsQueryController.dispose();
   }
 }

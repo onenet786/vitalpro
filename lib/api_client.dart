@@ -95,6 +95,23 @@ class ApiClient {
     return ReportResult.fromJson(body);
   }
 
+  Future<List<String>> fetchReportFilterOptions({
+    required int serverId,
+    required int queryId,
+    required String filterKey,
+    Map<String, String> filters = const {},
+  }) async {
+    final body = await _postJson('/api/reporting/filter-options', {
+      'serverId': serverId,
+      'queryId': queryId,
+      'filterKey': filterKey,
+      'filters': filters,
+    });
+    return (body['options'] as List<dynamic>? ?? const [])
+        .map((item) => item.toString())
+        .toList();
+  }
+
   Future<Map<String, dynamic>> _get(String path) async {
     final uri = _buildUri(path);
     if (uri == null) {
