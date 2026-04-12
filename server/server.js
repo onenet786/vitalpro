@@ -141,6 +141,26 @@ async function initializeStorage() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_server_assignments (
+      user_id INT NOT NULL,
+      server_id INT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, server_id),
+      KEY idx_user_server_assignments_server_id (server_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_query_assignments (
+      user_id INT NOT NULL,
+      query_id INT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, query_id),
+      KEY idx_user_query_assignments_query_id (query_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
     INSERT INTO app_settings (id, company_name, company_address, company_logo_url)
     VALUES (1, '', '', '')
     ON DUPLICATE KEY UPDATE id = id;
@@ -166,6 +186,7 @@ async function ensureOptionalSchemaColumns() {
     'assigned_server_id',
     'ALTER TABLE app_users ADD COLUMN assigned_server_id INT NULL AFTER assigned_company_id',
   );
+  await migrateLegacyAssignedServerLinks();
   await migrateLegacyCompanyProfile();
 }
 
@@ -217,6 +238,29 @@ async function migrateLegacyCompanyProfile() {
      VALUES (?, ?, ?)`,
     [name || 'Primary Client', address, logoUrl],
   );
+}
+
+async function migrateLegacyAssignedServerLinks() {
+  const [assignmentRows] = await pool.query(
+    'SELECT COUNT(*) AS total FROM user_server_assignments',
+  );
+  if ((assignmentRows[0]?.total || 0) > 0) {
+    return;
+  }
+
+  const [legacyRows] = await pool.query(
+    `SELECT id, assigned_server_id
+     FROM app_users
+     WHERE assigned_server_id IS NOT NULL`,
+  );
+
+  for (const row of legacyRows) {
+    await pool.query(
+      `INSERT IGNORE INTO user_server_assignments (user_id, server_id)
+       VALUES (?, ?)`,
+      [row.id, row.assigned_server_id],
+    );
+  }
 }
 
 function sendJson(res, statusCode, payload) {
@@ -337,12 +381,9 @@ async function authenticateUser(username, password) {
             u.role,
             u.assigned_company_id,
             c.company_name AS assigned_company_name,
-            u.assigned_server_id,
-            s.name AS assigned_server_name,
             u.is_active
      FROM app_users u
      LEFT JOIN companies c ON c.id = u.assigned_company_id
-     LEFT JOIN reporting_servers s ON s.id = u.assigned_server_id
      WHERE u.username = ?
      LIMIT 1`,
     [normalizedUsername],
@@ -358,14 +399,19 @@ async function authenticateUser(username, password) {
     throw createHttpError(401, 'Invalid username or password.');
   }
 
+  const assignedServers = await listAssignedServersForUser(user.id);
+  const assignedQueries = await listAssignedQueriesForUser(user.id);
+
   return {
     id: user.id,
     username: user.username,
     role: normalizeRole(user.role),
     assignedCompanyId: user.assigned_company_id,
     assignedCompanyName: user.assigned_company_name || '',
-    assignedServerId: user.assigned_server_id,
-    assignedServerName: user.assigned_server_name || '',
+    assignedServerIds: assignedServers.map((server) => server.id),
+    assignedServerNames: assignedServers.map((server) => server.name),
+    assignedQueryIds: assignedQueries.map((query) => query.id),
+    assignedQueryNames: assignedQueries.map((query) => query.queryName),
   };
 }
 
@@ -377,8 +423,18 @@ function createSession(user) {
     role: normalizeRole(user.role),
     assignedCompanyId: user.assignedCompanyId || null,
     assignedCompanyName: user.assignedCompanyName || '',
-    assignedServerId: user.assignedServerId || null,
-    assignedServerName: user.assignedServerName || '',
+    assignedServerIds: Array.isArray(user.assignedServerIds)
+      ? user.assignedServerIds
+      : [],
+    assignedServerNames: Array.isArray(user.assignedServerNames)
+      ? user.assignedServerNames
+      : [],
+    assignedQueryIds: Array.isArray(user.assignedQueryIds)
+      ? user.assignedQueryIds
+      : [],
+    assignedQueryNames: Array.isArray(user.assignedQueryNames)
+      ? user.assignedQueryNames
+      : [],
   });
   return token;
 }
@@ -442,6 +498,38 @@ function validateUserPayload(payload) {
   if (!payload.id && !payload.password) missing.push('password');
 
   return missing;
+}
+
+function normalizeAssignedServerIds(payload) {
+  const rawIds = Array.isArray(payload?.assignedServerIds)
+    ? payload.assignedServerIds
+    : payload?.assignedServerId != null
+    ? [payload.assignedServerId]
+    : [];
+
+  return Array.from(
+    new Set(
+      rawIds
+        .map((value) => parseInt(value, 10))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    ),
+  ).sort((left, right) => left - right);
+}
+
+function normalizeAssignedQueryIds(payload) {
+  const rawIds = Array.isArray(payload?.assignedQueryIds)
+    ? payload.assignedQueryIds
+    : payload?.assignedQueryId != null
+    ? [payload.assignedQueryId]
+    : [];
+
+  return Array.from(
+    new Set(
+      rawIds
+        .map((value) => parseInt(value, 10))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    ),
+  ).sort((left, right) => left - right);
 }
 
 function validateCompanyPayload(payload) {
@@ -630,22 +718,67 @@ async function listServers({ includeSecrets }) {
   }));
 }
 
+async function listAssignedServersForUser(userId, { includeSecrets = false } = {}) {
+  const [rows] = await pool.query(
+    `SELECT s.id, s.name, s.host, s.port, s.database_name, s.authentication_mode, s.username, s.password
+     FROM user_server_assignments usa
+     INNER JOIN reporting_servers s ON s.id = usa.server_id
+     WHERE usa.user_id = ?
+     ORDER BY s.name ASC, s.id ASC`,
+    [userId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    host: row.host,
+    port: row.port,
+    databaseName: row.database_name,
+    authenticationMode: row.authentication_mode,
+    username: includeSecrets ? row.username || '' : '',
+    password: includeSecrets ? row.password || '' : '',
+  }));
+}
+
+async function listAssignedQueriesForUser(userId, { includeSql = false } = {}) {
+  const [rows] = await pool.query(
+    `SELECT q.id, q.query_name, q.query_text, q.filters_json, q.show_chart_default
+     FROM user_query_assignments uqa
+     INNER JOIN report_queries q ON q.id = uqa.query_id
+     WHERE uqa.user_id = ?
+     ORDER BY q.query_name ASC, q.id ASC`,
+    [userId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    queryName: row.query_name,
+    queryText: includeSql ? row.query_text : '',
+    filters: parseFiltersJson(row.filters_json),
+    showChartByDefault: !!row.show_chart_default,
+  }));
+}
+
 async function getAssignedServersForUser(user) {
-  const assignedServerId = user?.assignedServerId || user?.assigned_server_id;
-  if (assignedServerId) {
-    const server = await getServerById(assignedServerId);
-    return server
-      ? [
-          {
-            ...server,
-            username: '',
-            password: '',
-          },
-        ]
-      : [];
+  const assignedServerIds = Array.isArray(user?.assignedServerIds)
+    ? user.assignedServerIds
+    : [];
+  if (assignedServerIds.length > 0 && user?.id) {
+    return listAssignedServersForUser(user.id, { includeSecrets: false });
   }
 
   return listServers({ includeSecrets: false });
+}
+
+async function getAssignedQueriesForUser(user) {
+  const assignedQueryIds = Array.isArray(user?.assignedQueryIds)
+    ? user.assignedQueryIds
+    : [];
+  if (assignedQueryIds.length > 0 && user?.id) {
+    return listAssignedQueriesForUser(user.id, { includeSql: false });
+  }
+
+  return listQueries({ includeSql: false });
 }
 
 async function listQueries({ includeSql }) {
@@ -680,7 +813,7 @@ async function loadReportingBootstrap(user) {
   return {
     companyProfile: await getCompanyProfileForUser(user),
     servers: await getAssignedServersForUser(user),
-    queries: await listQueries({ includeSql: false }),
+    queries: await getAssignedQueriesForUser(user),
   };
 }
 
@@ -705,25 +838,30 @@ async function listUsers() {
             u.role,
             u.assigned_company_id,
             c.company_name AS assigned_company_name,
-            u.assigned_server_id,
-            s.name AS assigned_server_name,
             u.is_active
      FROM app_users u
      LEFT JOIN companies c ON c.id = u.assigned_company_id
-     LEFT JOIN reporting_servers s ON s.id = u.assigned_server_id
      ORDER BY u.username ASC, u.id ASC`,
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    username: row.username,
-    role: normalizeRole(row.role),
-    assignedCompanyId: row.assigned_company_id,
-    assignedCompanyName: row.assigned_company_name || '',
-    assignedServerId: row.assigned_server_id,
-    assignedServerName: row.assigned_server_name || '',
-    isActive: !!row.is_active,
-  }));
+  return Promise.all(
+    rows.map(async (row) => {
+      const assignedServers = await listAssignedServersForUser(row.id);
+      const assignedQueries = await listAssignedQueriesForUser(row.id);
+      return {
+        id: row.id,
+        username: row.username,
+        role: normalizeRole(row.role),
+        assignedCompanyId: row.assigned_company_id,
+        assignedCompanyName: row.assigned_company_name || '',
+        assignedServerIds: assignedServers.map((server) => server.id),
+        assignedServerNames: assignedServers.map((server) => server.name),
+        assignedQueryIds: assignedQueries.map((query) => query.id),
+        assignedQueryNames: assignedQueries.map((query) => query.queryName),
+        isActive: !!row.is_active,
+      };
+    }),
+  );
 }
 
 async function saveCompany(payload) {
@@ -815,8 +953,8 @@ async function saveServer(payload) {
 async function deleteServer(id) {
   const [inUseRows] = await pool.query(
     `SELECT COUNT(*) AS total
-     FROM app_users
-     WHERE assigned_server_id = ?`,
+     FROM user_server_assignments
+     WHERE server_id = ?`,
     [id],
   );
   if ((inUseRows[0]?.total || 0) > 0) {
@@ -867,6 +1005,19 @@ async function saveQuery(payload) {
 }
 
 async function deleteQuery(id) {
+  const [inUseRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM user_query_assignments
+     WHERE query_id = ?`,
+    [id],
+  );
+  if ((inUseRows[0]?.total || 0) > 0) {
+    throw createHttpError(
+      400,
+      'This report query is assigned to one or more users. Reassign those users before deleting it.',
+    );
+  }
+
   const [result] = await pool.query('DELETE FROM report_queries WHERE id = ?', [id]);
   return result.affectedRows > 0;
 }
@@ -877,9 +1028,10 @@ async function saveUser(payload) {
   const assignedCompanyId = payload.assignedCompanyId
     ? parseInt(payload.assignedCompanyId, 10)
     : null;
-  const assignedServerId = payload.assignedServerId
-    ? parseInt(payload.assignedServerId, 10)
-    : null;
+  const assignedServerIds = normalizeAssignedServerIds(payload);
+  const assignedQueryIds = normalizeAssignedQueryIds(payload);
+  const primaryAssignedServerId =
+    assignedServerIds.length > 0 ? assignedServerIds[0] : null;
   const isActive = toBoolean(payload.isActive) ? 1 : 0;
   const id = payload.id ? parseInt(payload.id, 10) : null;
 
@@ -891,7 +1043,13 @@ async function saveUser(payload) {
       'assigned_server_id = ?',
       'is_active = ?',
     ];
-    const values = [username, role, assignedCompanyId, assignedServerId, isActive];
+    const values = [
+      username,
+      role,
+      assignedCompanyId,
+      primaryAssignedServerId,
+      isActive,
+    ];
 
     if (String(payload.password || '').trim()) {
       updates.push('password_hash = ?');
@@ -905,10 +1063,32 @@ async function saveUser(payload) {
        WHERE id = ?`,
       values,
     );
+    await pool.query(
+      'DELETE FROM user_server_assignments WHERE user_id = ?',
+      [id],
+    );
+    for (const serverId of assignedServerIds) {
+      await pool.query(
+        `INSERT INTO user_server_assignments (user_id, server_id)
+         VALUES (?, ?)`,
+        [id, serverId],
+      );
+    }
+    await pool.query(
+      'DELETE FROM user_query_assignments WHERE user_id = ?',
+      [id],
+    );
+    for (const queryId of assignedQueryIds) {
+      await pool.query(
+        `INSERT INTO user_query_assignments (user_id, query_id)
+         VALUES (?, ?)`,
+        [id, queryId],
+      );
+    }
     return 'User updated successfully.';
   }
 
-  await pool.query(
+  const [result] = await pool.query(
     `INSERT INTO app_users (
       username,
       password_hash,
@@ -923,14 +1103,30 @@ async function saveUser(payload) {
       await hashPassword(payload.password),
       role,
       assignedCompanyId,
-      assignedServerId,
+      primaryAssignedServerId,
       isActive,
     ],
   );
+  for (const serverId of assignedServerIds) {
+    await pool.query(
+      `INSERT INTO user_server_assignments (user_id, server_id)
+       VALUES (?, ?)`,
+      [result.insertId, serverId],
+    );
+  }
+  for (const queryId of assignedQueryIds) {
+    await pool.query(
+      `INSERT INTO user_query_assignments (user_id, query_id)
+       VALUES (?, ?)`,
+      [result.insertId, queryId],
+    );
+  }
   return 'User created successfully.';
 }
 
 async function deleteUser(id) {
+  await pool.query('DELETE FROM user_server_assignments WHERE user_id = ?', [id]);
+  await pool.query('DELETE FROM user_query_assignments WHERE user_id = ?', [id]);
   const [result] = await pool.query('DELETE FROM app_users WHERE id = ?', [id]);
   return result.affectedRows > 0;
 }
@@ -966,11 +1162,35 @@ function ensureUserCanAccessServer(user, serverId) {
     return;
   }
 
-  const assignedServerId = user.assignedServerId || user.assigned_server_id;
-  if (assignedServerId && Number(assignedServerId) !== Number(serverId)) {
+  const assignedServerIds = Array.isArray(user.assignedServerIds)
+    ? user.assignedServerIds
+    : [];
+  if (
+    assignedServerIds.length > 0 &&
+    !assignedServerIds.some((assignedId) => Number(assignedId) === Number(serverId))
+  ) {
     throw createHttpError(
       403,
-      'You can only access the SQL server assigned to your account.',
+      'You can only access SQL servers assigned to your account.',
+    );
+  }
+}
+
+function ensureUserCanAccessQuery(user, queryId) {
+  if (!user || normalizeRole(user.role) === 'admin') {
+    return;
+  }
+
+  const assignedQueryIds = Array.isArray(user.assignedQueryIds)
+    ? user.assignedQueryIds
+    : [];
+  if (
+    assignedQueryIds.length > 0 &&
+    !assignedQueryIds.some((assignedId) => Number(assignedId) === Number(queryId))
+  ) {
+    throw createHttpError(
+      403,
+      'You can only access report queries assigned to your account.',
     );
   }
 }
@@ -1097,6 +1317,7 @@ function logReportExecution(serverConfig, queryConfig, queryText) {
 
 async function runReport(user, serverId, queryId, filterValues = {}) {
   ensureUserCanAccessServer(user, serverId);
+  ensureUserCanAccessQuery(user, queryId);
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
     throw createHttpError(404, 'Selected SQL server was not found.');
@@ -1190,6 +1411,7 @@ async function fetchReportFilterOptions(
   filterValues = {},
 ) {
   ensureUserCanAccessServer(user, serverId);
+  ensureUserCanAccessQuery(user, queryId);
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
     throw createHttpError(404, 'Selected SQL server was not found.');

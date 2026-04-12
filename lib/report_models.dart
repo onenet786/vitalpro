@@ -19,8 +19,10 @@ class AppUser {
     required this.role,
     this.assignedCompanyId,
     this.assignedCompanyName = '',
-    this.assignedServerId,
-    this.assignedServerName = '',
+    this.assignedServerIds = const [],
+    this.assignedServerNames = const [],
+    this.assignedQueryIds = const [],
+    this.assignedQueryNames = const [],
     this.isActive = true,
   });
 
@@ -29,11 +31,39 @@ class AppUser {
   final UserRole role;
   final int? assignedCompanyId;
   final String assignedCompanyName;
-  final int? assignedServerId;
-  final String assignedServerName;
+  final List<int> assignedServerIds;
+  final List<String> assignedServerNames;
+  final List<int> assignedQueryIds;
+  final List<String> assignedQueryNames;
   final bool isActive;
 
   bool get isAdmin => role == UserRole.admin;
+  int? get assignedServerId => assignedServerIds.isEmpty ? null : assignedServerIds.first;
+  String get assignedServerName =>
+      assignedServerNames.isEmpty ? '' : assignedServerNames.first;
+
+  static List<int> _parseIntList(dynamic primaryValue, dynamic fallbackValue) {
+    final source = primaryValue ?? fallbackValue;
+    if (source is List) {
+      return source
+          .map((item) => item is int ? item : int.tryParse('$item'))
+          .whereType<int>()
+          .toList();
+    }
+
+    final single = source is int ? source : int.tryParse('${source ?? ''}');
+    return single == null ? const [] : [single];
+  }
+
+  static List<String> _parseStringList(dynamic primaryValue, dynamic fallbackValue) {
+    final source = primaryValue ?? fallbackValue;
+    if (source is List) {
+      return source.map((item) => '$item').where((item) => item.trim().isNotEmpty).toList();
+    }
+
+    final single = '${source ?? ''}'.trim();
+    return single.isEmpty ? const [] : [single];
+  }
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
@@ -52,16 +82,22 @@ class AppUser {
       assignedCompanyName:
           (json['assignedCompanyName'] ?? json['assigned_company_name'] ?? '')
               .toString(),
-      assignedServerId: json['assignedServerId'] is int
-          ? json['assignedServerId'] as int
-          : json['assigned_server_id'] is int
-          ? json['assigned_server_id'] as int
-          : int.tryParse(
-              '${json['assignedServerId'] ?? json['assigned_server_id'] ?? ''}',
-            ),
-      assignedServerName:
-          (json['assignedServerName'] ?? json['assigned_server_name'] ?? '')
-              .toString(),
+      assignedServerIds: _parseIntList(
+        json['assignedServerIds'],
+        json['assigned_server_ids'] ?? json['assignedServerId'] ?? json['assigned_server_id'],
+      ),
+      assignedServerNames: _parseStringList(
+        json['assignedServerNames'],
+        json['assigned_server_names'] ?? json['assignedServerName'] ?? json['assigned_server_name'],
+      ),
+      assignedQueryIds: _parseIntList(
+        json['assignedQueryIds'],
+        json['assigned_query_ids'] ?? json['assignedQueryId'] ?? json['assigned_query_id'],
+      ),
+      assignedQueryNames: _parseStringList(
+        json['assignedQueryNames'],
+        json['assigned_query_names'] ?? json['assignedQueryName'] ?? json['assigned_query_name'],
+      ),
       isActive:
           json['isActive'] == true ||
           json['is_active'] == true ||
@@ -77,8 +113,10 @@ class AppUser {
       'role': role.name,
       'assignedCompanyId': assignedCompanyId,
       'assignedCompanyName': assignedCompanyName,
-      'assignedServerId': assignedServerId,
-      'assignedServerName': assignedServerName,
+      'assignedServerIds': assignedServerIds,
+      'assignedServerNames': assignedServerNames,
+      'assignedQueryIds': assignedQueryIds,
+      'assignedQueryNames': assignedQueryNames,
       'isActive': isActive,
     };
   }
@@ -89,8 +127,10 @@ class AppUser {
     UserRole? role,
     int? assignedCompanyId,
     String? assignedCompanyName,
-    int? assignedServerId,
-    String? assignedServerName,
+    List<int>? assignedServerIds,
+    List<String>? assignedServerNames,
+    List<int>? assignedQueryIds,
+    List<String>? assignedQueryNames,
     bool? isActive,
   }) {
     return AppUser(
@@ -99,8 +139,10 @@ class AppUser {
       role: role ?? this.role,
       assignedCompanyId: assignedCompanyId ?? this.assignedCompanyId,
       assignedCompanyName: assignedCompanyName ?? this.assignedCompanyName,
-      assignedServerId: assignedServerId ?? this.assignedServerId,
-      assignedServerName: assignedServerName ?? this.assignedServerName,
+      assignedServerIds: assignedServerIds ?? this.assignedServerIds,
+      assignedServerNames: assignedServerNames ?? this.assignedServerNames,
+      assignedQueryIds: assignedQueryIds ?? this.assignedQueryIds,
+      assignedQueryNames: assignedQueryNames ?? this.assignedQueryNames,
       isActive: isActive ?? this.isActive,
     );
   }
@@ -465,7 +507,8 @@ class AdminUserInput {
     required this.role,
     required this.isActive,
     this.assignedCompanyId,
-    this.assignedServerId,
+    this.assignedServerIds = const [],
+    this.assignedQueryIds = const [],
     this.password = '',
   });
 
@@ -474,7 +517,8 @@ class AdminUserInput {
   final UserRole role;
   final bool isActive;
   final int? assignedCompanyId;
-  final int? assignedServerId;
+  final List<int> assignedServerIds;
+  final List<int> assignedQueryIds;
   final String password;
 
   Map<String, dynamic> toJson() {
@@ -484,7 +528,8 @@ class AdminUserInput {
       'role': role.name,
       'isActive': isActive,
       'assignedCompanyId': assignedCompanyId,
-      'assignedServerId': assignedServerId,
+      'assignedServerIds': assignedServerIds,
+      'assignedQueryIds': assignedQueryIds,
       'password': password,
     };
   }

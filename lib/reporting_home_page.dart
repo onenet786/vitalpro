@@ -77,7 +77,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Set<String> _loadingReportFilterOptions = const {};
   int? _editingCompanyId;
   int? _selectedAssignedCompanyId;
-  int? _selectedAssignedServerId;
+  Set<int> _selectedAssignedServerIds = <int>{};
+  Set<int> _selectedAssignedQueryIds = <int>{};
   int? _selectedServerId;
   int? _selectedQueryId;
   int? _editingServerId;
@@ -1012,7 +1013,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           role: _userRole,
           isActive: _userIsActive,
           assignedCompanyId: _selectedAssignedCompanyId,
-          assignedServerId: _selectedAssignedServerId,
+          assignedServerIds: _selectedAssignedServerIds.toList()..sort(),
+          assignedQueryIds: _selectedAssignedQueryIds.toList()..sort(),
         ),
       );
       if (!mounted) {
@@ -1132,7 +1134,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _editingUserId = user.id;
       _userRole = user.role;
       _selectedAssignedCompanyId = user.assignedCompanyId;
-      _selectedAssignedServerId = user.assignedServerId;
+      _selectedAssignedServerIds = user.assignedServerIds.toSet();
+      _selectedAssignedQueryIds = user.assignedQueryIds.toSet();
       _userIsActive = user.isActive;
       _isUserPasswordVisible = false;
     });
@@ -1188,7 +1191,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _editingUserId = null;
       _userRole = UserRole.reporting;
       _selectedAssignedCompanyId = null;
-      _selectedAssignedServerId = null;
+      _selectedAssignedServerIds = <int>{};
+      _selectedAssignedQueryIds = <int>{};
       _userIsActive = true;
       _isUserPasswordVisible = false;
     });
@@ -3082,7 +3086,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int?>(
-              key: ValueKey(_selectedAssignedCompanyId),
+              key: ValueKey('assigned-company-${_selectedAssignedCompanyId ?? 'none'}'),
               initialValue: _selectedAssignedCompanyId,
               items: [
                 DropdownMenuItem<int?>(
@@ -3111,37 +3115,188 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ),
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int?>(
-              key: ValueKey(_selectedAssignedServerId),
-              initialValue: _selectedAssignedServerId,
-              items: [
-                DropdownMenuItem<int?>(
-                  value: null,
-                  child: Text(_tr('Unassigned', 'غیر تفویض شدہ')),
-                ),
-                ..._servers
-                    .where((server) => server.id != null)
-                    .map(
-                      (server) => DropdownMenuItem<int?>(
-                        value: server.id,
-                        child: Text(server.label),
-                      ),
-                    ),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _selectedAssignedServerId = value;
-                });
-              },
+            InputDecorator(
               decoration: InputDecoration(
                 labelText: _tr(
-                  'Assigned database server',
-                  'تفویض کردہ ڈیٹابیس سرور',
+                  'Assigned database servers',
+                  'تفویض کردہ ڈیٹابیس سرورز',
                 ),
                 border: const OutlineInputBorder(),
                 filled: true,
                 fillColor: Colors.white,
               ),
+              child: _servers.isEmpty
+                  ? Text(
+                      _tr(
+                        'No SQL servers available yet.',
+                        'ابھی تک کوئی SQL سرور دستیاب نہیں۔',
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _selectedAssignedServerIds.isEmpty
+                              ? [
+                                  Chip(
+                                    label: Text(
+                                      _tr('Unassigned', 'غیر تفویض شدہ'),
+                                    ),
+                                  ),
+                                ]
+                              : _servers
+                                  .where(
+                                    (server) =>
+                                        server.id != null &&
+                                        _selectedAssignedServerIds.contains(
+                                          server.id,
+                                        ),
+                                  )
+                                  .map(
+                                    (server) => Chip(label: Text(server.label)),
+                                  )
+                                  .toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        ..._servers
+                            .where((server) => server.id != null)
+                            .map(
+                              (server) => CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                value: _selectedAssignedServerIds.contains(
+                                  server.id,
+                                ),
+                                onChanged: (selected) {
+                                  setState(() {
+                                    final nextIds =
+                                        _selectedAssignedServerIds.toSet();
+                                    if (selected ?? false) {
+                                      nextIds.add(server.id!);
+                                    } else {
+                                      nextIds.remove(server.id);
+                                    }
+                                    _selectedAssignedServerIds = nextIds;
+                                  });
+                                },
+                                title: Text(server.label),
+                                subtitle: Text(
+                                  '${server.host}:${server.port} · ${server.databaseName}',
+                                ),
+                              ),
+                            ),
+                        if (_selectedAssignedServerIds.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedAssignedServerIds = <int>{};
+                                });
+                              },
+                              icon: const Icon(Icons.clear_all),
+                              label: Text(
+                                _tr('Clear selected servers', 'منتخب سرور صاف کریں'),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 16),
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: _tr(
+                  'Assigned report queries',
+                  'تفویض کردہ رپورٹ کوئریز',
+                ),
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              child: _queries.isEmpty
+                  ? Text(
+                      _tr(
+                        'No report queries available yet.',
+                        'ابھی تک کوئی رپورٹ کوئری دستیاب نہیں۔',
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _selectedAssignedQueryIds.isEmpty
+                              ? [
+                                  Chip(
+                                    label: Text(
+                                      _tr('Unassigned', 'غیر تفویض شدہ'),
+                                    ),
+                                  ),
+                                ]
+                              : _queries
+                                  .where(
+                                    (query) =>
+                                        query.id != null &&
+                                        _selectedAssignedQueryIds.contains(
+                                          query.id,
+                                        ),
+                                  )
+                                  .map(
+                                    (query) =>
+                                        Chip(label: Text(query.queryName)),
+                                  )
+                                  .toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        ..._queries
+                            .where((query) => query.id != null)
+                            .map(
+                              (query) => CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                value: _selectedAssignedQueryIds.contains(
+                                  query.id,
+                                ),
+                                onChanged: (selected) {
+                                  setState(() {
+                                    final nextIds =
+                                        _selectedAssignedQueryIds.toSet();
+                                    if (selected ?? false) {
+                                      nextIds.add(query.id!);
+                                    } else {
+                                      nextIds.remove(query.id);
+                                    }
+                                    _selectedAssignedQueryIds = nextIds;
+                                  });
+                                },
+                                title: Text(query.queryName),
+                              ),
+                            ),
+                        if (_selectedAssignedQueryIds.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedAssignedQueryIds = <int>{};
+                                });
+                              },
+                              icon: const Icon(Icons.clear_all),
+                              label: Text(
+                                _tr('Clear selected queries', 'منتخب کوئریز صاف کریں'),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
             ),
             const SizedBox(height: 16),
             _buildTextField(
@@ -3311,8 +3466,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       const SizedBox(height: 4),
                       Text(
                         _tr(
-                          'Assigned database server: ${user.assignedServerName.trim().isEmpty ? 'Unassigned' : user.assignedServerName}',
-                          'تفویض کردہ ڈیٹابیس سرور: ${user.assignedServerName.trim().isEmpty ? 'غیر تفویض شدہ' : user.assignedServerName}',
+                          'Assigned database servers: ${user.assignedServerNames.isEmpty ? 'Unassigned' : user.assignedServerNames.join(', ')}',
+                          'تفویض کردہ ڈیٹابیس سرورز: ${user.assignedServerNames.isEmpty ? 'غیر تفویض شدہ' : user.assignedServerNames.join(', ')}',
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _tr(
+                          'Assigned report queries: ${user.assignedQueryNames.isEmpty ? 'Unassigned' : user.assignedQueryNames.join(', ')}',
+                          'تفویض کردہ رپورٹ کوئریز: ${user.assignedQueryNames.isEmpty ? 'غیر تفویض شدہ' : user.assignedQueryNames.join(', ')}',
                         ),
                       ),
                       const SizedBox(height: 4),
