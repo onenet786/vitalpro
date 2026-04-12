@@ -19,6 +19,8 @@ class AppUser {
     required this.role,
     this.assignedCompanyId,
     this.assignedCompanyName = '',
+    this.assignedServerId,
+    this.assignedServerName = '',
     this.isActive = true,
   });
 
@@ -27,6 +29,8 @@ class AppUser {
   final UserRole role;
   final int? assignedCompanyId;
   final String assignedCompanyName;
+  final int? assignedServerId;
+  final String assignedServerName;
   final bool isActive;
 
   bool get isAdmin => role == UserRole.admin;
@@ -48,6 +52,16 @@ class AppUser {
       assignedCompanyName:
           (json['assignedCompanyName'] ?? json['assigned_company_name'] ?? '')
               .toString(),
+      assignedServerId: json['assignedServerId'] is int
+          ? json['assignedServerId'] as int
+          : json['assigned_server_id'] is int
+          ? json['assigned_server_id'] as int
+          : int.tryParse(
+              '${json['assignedServerId'] ?? json['assigned_server_id'] ?? ''}',
+            ),
+      assignedServerName:
+          (json['assignedServerName'] ?? json['assigned_server_name'] ?? '')
+              .toString(),
       isActive:
           json['isActive'] == true ||
           json['is_active'] == true ||
@@ -63,6 +77,8 @@ class AppUser {
       'role': role.name,
       'assignedCompanyId': assignedCompanyId,
       'assignedCompanyName': assignedCompanyName,
+      'assignedServerId': assignedServerId,
+      'assignedServerName': assignedServerName,
       'isActive': isActive,
     };
   }
@@ -73,6 +89,8 @@ class AppUser {
     UserRole? role,
     int? assignedCompanyId,
     String? assignedCompanyName,
+    int? assignedServerId,
+    String? assignedServerName,
     bool? isActive,
   }) {
     return AppUser(
@@ -81,6 +99,8 @@ class AppUser {
       role: role ?? this.role,
       assignedCompanyId: assignedCompanyId ?? this.assignedCompanyId,
       assignedCompanyName: assignedCompanyName ?? this.assignedCompanyName,
+      assignedServerId: assignedServerId ?? this.assignedServerId,
+      assignedServerName: assignedServerName ?? this.assignedServerName,
       isActive: isActive ?? this.isActive,
     );
   }
@@ -445,6 +465,7 @@ class AdminUserInput {
     required this.role,
     required this.isActive,
     this.assignedCompanyId,
+    this.assignedServerId,
     this.password = '',
   });
 
@@ -453,6 +474,7 @@ class AdminUserInput {
   final UserRole role;
   final bool isActive;
   final int? assignedCompanyId;
+  final int? assignedServerId;
   final String password;
 
   Map<String, dynamic> toJson() {
@@ -462,6 +484,7 @@ class AdminUserInput {
       'role': role.name,
       'isActive': isActive,
       'assignedCompanyId': assignedCompanyId,
+      'assignedServerId': assignedServerId,
       'password': password,
     };
   }

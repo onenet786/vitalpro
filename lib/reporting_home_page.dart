@@ -77,6 +77,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Set<String> _loadingReportFilterOptions = const {};
   int? _editingCompanyId;
   int? _selectedAssignedCompanyId;
+  int? _selectedAssignedServerId;
   int? _selectedServerId;
   int? _selectedQueryId;
   int? _editingServerId;
@@ -1011,6 +1012,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           role: _userRole,
           isActive: _userIsActive,
           assignedCompanyId: _selectedAssignedCompanyId,
+          assignedServerId: _selectedAssignedServerId,
         ),
       );
       if (!mounted) {
@@ -1130,6 +1132,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _editingUserId = user.id;
       _userRole = user.role;
       _selectedAssignedCompanyId = user.assignedCompanyId;
+      _selectedAssignedServerId = user.assignedServerId;
       _userIsActive = user.isActive;
       _isUserPasswordVisible = false;
     });
@@ -1185,6 +1188,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       _editingUserId = null;
       _userRole = UserRole.reporting;
       _selectedAssignedCompanyId = null;
+      _selectedAssignedServerId = null;
       _userIsActive = true;
       _isUserPasswordVisible = false;
     });
@@ -3107,6 +3111,39 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ),
             ),
             const SizedBox(height: 16),
+            DropdownButtonFormField<int?>(
+              key: ValueKey(_selectedAssignedServerId),
+              initialValue: _selectedAssignedServerId,
+              items: [
+                DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text(_tr('Unassigned', 'غیر تفویض شدہ')),
+                ),
+                ..._servers
+                    .where((server) => server.id != null)
+                    .map(
+                      (server) => DropdownMenuItem<int?>(
+                        value: server.id,
+                        child: Text(server.label),
+                      ),
+                    ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedAssignedServerId = value;
+                });
+              },
+              decoration: InputDecoration(
+                labelText: _tr(
+                  'Assigned database server',
+                  'تفویض کردہ ڈیٹابیس سرور',
+                ),
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
             _buildTextField(
               controller: _userPasswordController,
               label: _editingUserId == null
@@ -3269,6 +3306,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         _tr(
                           'Assigned company: ${user.assignedCompanyName.trim().isEmpty ? 'Unassigned' : user.assignedCompanyName}',
                           'تفویض کردہ کمپنی: ${user.assignedCompanyName.trim().isEmpty ? 'غیر تفویض شدہ' : user.assignedCompanyName}',
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _tr(
+                          'Assigned database server: ${user.assignedServerName.trim().isEmpty ? 'Unassigned' : user.assignedServerName}',
+                          'تفویض کردہ ڈیٹابیس سرور: ${user.assignedServerName.trim().isEmpty ? 'غیر تفویض شدہ' : user.assignedServerName}',
                         ),
                       ),
                       const SizedBox(height: 4),

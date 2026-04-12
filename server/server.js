@@ -131,6 +131,7 @@ async function initializeStorage() {
       password_hash TEXT NOT NULL,
       role VARCHAR(20) NOT NULL DEFAULT 'reporting',
       assigned_company_id INT NULL,
+      assigned_server_id INT NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -159,6 +160,11 @@ async function ensureOptionalSchemaColumns() {
     'app_users',
     'assigned_company_id',
     'ALTER TABLE app_users ADD COLUMN assigned_company_id INT NULL AFTER role',
+  );
+  await ensureColumnExists(
+    'app_users',
+    'assigned_server_id',
+    'ALTER TABLE app_users ADD COLUMN assigned_server_id INT NULL AFTER assigned_company_id',
   );
   await migrateLegacyCompanyProfile();
 }
@@ -331,9 +337,12 @@ async function authenticateUser(username, password) {
             u.role,
             u.assigned_company_id,
             c.company_name AS assigned_company_name,
+            u.assigned_server_id,
+            s.name AS assigned_server_name,
             u.is_active
      FROM app_users u
      LEFT JOIN companies c ON c.id = u.assigned_company_id
+     LEFT JOIN reporting_servers s ON s.id = u.assigned_server_id
      WHERE u.username = ?
      LIMIT 1`,
     [normalizedUsername],
@@ -355,6 +364,8 @@ async function authenticateUser(username, password) {
     role: normalizeRole(user.role),
     assignedCompanyId: user.assigned_company_id,
     assignedCompanyName: user.assigned_company_name || '',
+    assignedServerId: user.assigned_server_id,
+    assignedServerName: user.assigned_server_name || '',
   };
 }
 
@@ -366,6 +377,8 @@ function createSession(user) {
     role: normalizeRole(user.role),
     assignedCompanyId: user.assignedCompanyId || null,
     assignedCompanyName: user.assignedCompanyName || '',
+    assignedServerId: user.assignedServerId || null,
+    assignedServerName: user.assignedServerName || '',
   });
   return token;
 }
@@ -617,6 +630,24 @@ async function listServers({ includeSecrets }) {
   }));
 }
 
+async function getAssignedServersForUser(user) {
+  const assignedServerId = user?.assignedServerId || user?.assigned_server_id;
+  if (assignedServerId) {
+    const server = await getServerById(assignedServerId);
+    return server
+      ? [
+          {
+            ...server,
+            username: '',
+            password: '',
+          },
+        ]
+      : [];
+  }
+
+  return listServers({ includeSecrets: false });
+}
+
 async function listQueries({ includeSql }) {
   const [rows] = await pool.query(
     `SELECT id, query_name, query_text, filters_json, show_chart_default
@@ -648,7 +679,7 @@ function parseFiltersJson(value) {
 async function loadReportingBootstrap(user) {
   return {
     companyProfile: await getCompanyProfileForUser(user),
-    servers: await listServers({ includeSecrets: false }),
+    servers: await getAssignedServersForUser(user),
     queries: await listQueries({ includeSql: false }),
   };
 }
@@ -674,9 +705,12 @@ async function listUsers() {
             u.role,
             u.assigned_company_id,
             c.company_name AS assigned_company_name,
+            u.assigned_server_id,
+            s.name AS assigned_server_name,
             u.is_active
      FROM app_users u
      LEFT JOIN companies c ON c.id = u.assigned_company_id
+     LEFT JOIN reporting_servers s ON s.id = u.assigned_server_id
      ORDER BY u.username ASC, u.id ASC`,
   );
 
@@ -686,6 +720,8 @@ async function listUsers() {
     role: normalizeRole(row.role),
     assignedCompanyId: row.assigned_company_id,
     assignedCompanyName: row.assigned_company_name || '',
+    assignedServerId: row.assigned_server_id,
+    assignedServerName: row.assigned_server_name || '',
     isActive: !!row.is_active,
   }));
 }
@@ -777,6 +813,19 @@ async function saveServer(payload) {
 }
 
 async function deleteServer(id) {
+  const [inUseRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM app_users
+     WHERE assigned_server_id = ?`,
+    [id],
+  );
+  if ((inUseRows[0]?.total || 0) > 0) {
+    throw createHttpError(
+      400,
+      'This SQL server is assigned to one or more users. Reassign those users before deleting it.',
+    );
+  }
+
   const [result] = await pool.query('DELETE FROM reporting_servers WHERE id = ?', [id]);
   return result.affectedRows > 0;
 }
@@ -828,6 +877,9 @@ async function saveUser(payload) {
   const assignedCompanyId = payload.assignedCompanyId
     ? parseInt(payload.assignedCompanyId, 10)
     : null;
+  const assignedServerId = payload.assignedServerId
+    ? parseInt(payload.assignedServerId, 10)
+    : null;
   const isActive = toBoolean(payload.isActive) ? 1 : 0;
   const id = payload.id ? parseInt(payload.id, 10) : null;
 
@@ -836,9 +888,10 @@ async function saveUser(payload) {
       'username = ?',
       'role = ?',
       'assigned_company_id = ?',
+      'assigned_server_id = ?',
       'is_active = ?',
     ];
-    const values = [username, role, assignedCompanyId, isActive];
+    const values = [username, role, assignedCompanyId, assignedServerId, isActive];
 
     if (String(payload.password || '').trim()) {
       updates.push('password_hash = ?');
@@ -856,9 +909,23 @@ async function saveUser(payload) {
   }
 
   await pool.query(
-    `INSERT INTO app_users (username, password_hash, role, assigned_company_id, is_active)
-     VALUES (?, ?, ?, ?, ?)`,
-    [username, await hashPassword(payload.password), role, assignedCompanyId, isActive],
+    `INSERT INTO app_users (
+      username,
+      password_hash,
+      role,
+      assigned_company_id,
+      assigned_server_id,
+      is_active
+    )
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      username,
+      await hashPassword(payload.password),
+      role,
+      assignedCompanyId,
+      assignedServerId,
+      isActive,
+    ],
   );
   return 'User created successfully.';
 }
@@ -892,6 +959,20 @@ async function getServerById(id) {
     username: row.username || '',
     password: row.password || '',
   };
+}
+
+function ensureUserCanAccessServer(user, serverId) {
+  if (!user || normalizeRole(user.role) === 'admin') {
+    return;
+  }
+
+  const assignedServerId = user.assignedServerId || user.assigned_server_id;
+  if (assignedServerId && Number(assignedServerId) !== Number(serverId)) {
+    throw createHttpError(
+      403,
+      'You can only access the SQL server assigned to your account.',
+    );
+  }
 }
 
 async function getQueryById(id) {
@@ -1014,7 +1095,8 @@ function logReportExecution(serverConfig, queryConfig, queryText) {
   console.log('====================================================');
 }
 
-async function runReport(serverId, queryId, filterValues = {}) {
+async function runReport(user, serverId, queryId, filterValues = {}) {
+  ensureUserCanAccessServer(user, serverId);
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
     throw createHttpError(404, 'Selected SQL server was not found.');
@@ -1100,7 +1182,14 @@ async function resetUserPassword(username, currentPassword, newPassword) {
   };
 }
 
-async function fetchReportFilterOptions(serverId, queryId, filterKey, filterValues = {}) {
+async function fetchReportFilterOptions(
+  user,
+  serverId,
+  queryId,
+  filterKey,
+  filterValues = {},
+) {
+  ensureUserCanAccessServer(user, serverId);
   const serverConfig = await getServerById(serverId);
   if (!serverConfig) {
     throw createHttpError(404, 'Selected SQL server was not found.');
@@ -1578,7 +1667,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/reporting/run') {
-      requireAuth(req);
+      const { user } = requireAuth(req);
       const payload = await readJsonBody(req);
       const serverId = parseInt(payload.serverId, 10);
       const queryId = parseInt(payload.queryId, 10);
@@ -1590,13 +1679,13 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        await runReport(serverId, queryId, payload.filters || {}),
+        await runReport(user, serverId, queryId, payload.filters || {}),
       );
       return;
     }
 
     if (req.method === 'POST' && pathname === '/api/reporting/filter-options') {
-      requireAuth(req);
+      const { user } = requireAuth(req);
       const payload = await readJsonBody(req);
       const serverId = parseInt(payload.serverId, 10);
       const queryId = parseInt(payload.queryId, 10);
@@ -1610,6 +1699,7 @@ const server = http.createServer(async (req, res) => {
         res,
         200,
         await fetchReportFilterOptions(
+          user,
           serverId,
           queryId,
           filterKey,
