@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'launch_gate.dart';
 import 'report_models.dart';
@@ -22,12 +24,18 @@ class VitalProApp extends StatefulWidget {
 }
 
 class _VitalProAppState extends State<VitalProApp> {
+  static const _localePreferenceKey = 'app_locale_code';
+
   AuthSession? _session;
   bool _showIntro = true;
+  Locale _locale = const Locale('en', 'US');
+
+  bool get _isUrdu => _locale.languageCode == 'ur';
 
   @override
   void initState() {
     super.initState();
+    _loadLocalePreference();
     Timer(const Duration(seconds: 15), () {
       if (!mounted) {
         return;
@@ -35,6 +43,32 @@ class _VitalProAppState extends State<VitalProApp> {
       setState(() {
         _showIntro = false;
       });
+    });
+  }
+
+  Future<void> _loadLocalePreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    final localeCode = preferences.getString(_localePreferenceKey) ?? 'en';
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _locale = localeCode == 'ur'
+          ? const Locale('ur', 'PK')
+          : const Locale('en', 'US');
+    });
+  }
+
+  Future<void> _setLocale(Locale locale) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_localePreferenceKey, locale.languageCode);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _locale = locale;
     });
   }
 
@@ -67,11 +101,31 @@ class _VitalProAppState extends State<VitalProApp> {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'VitalPro Reporting',
+      title: _isUrdu ? 'وائٹل پرو رپورٹنگ' : 'VitalPro Reporting',
+      locale: _locale,
+      supportedLocales: const [Locale('en', 'US'), Locale('ur', 'PK')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      builder: (context, child) {
+        return Directionality(
+          textDirection: _isUrdu ? TextDirection.rtl : TextDirection.ltr,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       theme: ThemeData(
         colorScheme: colorScheme,
         scaffoldBackgroundColor: canvas,
         canvasColor: canvas,
+        fontFamilyFallback: const [
+          'Noto Nastaliq Urdu',
+          'Noto Naskh Arabic',
+          'Segoe UI',
+          'Tahoma',
+          'Arial Unicode MS',
+        ],
         appBarTheme: const AppBarTheme(
           backgroundColor: surface,
           foregroundColor: Color(0xFF102A43),
@@ -141,6 +195,8 @@ class _VitalProAppState extends State<VitalProApp> {
       ),
       home: _showIntro
           ? _AppIntroSplash(
+              locale: _locale,
+              onLocaleChanged: _setLocale,
               onComplete: () {
                 if (!mounted) {
                   return;
@@ -151,21 +207,33 @@ class _VitalProAppState extends State<VitalProApp> {
               },
             )
           : _session == null
-          ? LaunchGatePage(onLogin: _setSession)
+          ? LaunchGatePage(
+              onLogin: _setSession,
+              locale: _locale,
+              onLocaleChanged: _setLocale,
+            )
           : ReportingHomePage(
               session: _session!,
               onLogout: _clearSession,
               homeMode: _session!.user.isAdmin
                   ? HomeMode.admin
                   : HomeMode.reporting,
+              locale: _locale,
+              onLocaleChanged: _setLocale,
             ),
     );
   }
 }
 
 class _AppIntroSplash extends StatefulWidget {
-  const _AppIntroSplash({required this.onComplete});
+  const _AppIntroSplash({
+    required this.locale,
+    required this.onLocaleChanged,
+    required this.onComplete,
+  });
 
+  final Locale locale;
+  final ValueChanged<Locale> onLocaleChanged;
   final VoidCallback onComplete;
 
   @override
@@ -173,41 +241,48 @@ class _AppIntroSplash extends StatefulWidget {
 }
 
 class _AppIntroSplashState extends State<_AppIntroSplash> {
-  static const _slides = [
+  Timer? _slideTimer;
+  int _currentIndex = 0;
+
+  bool get _isUrdu => widget.locale.languageCode == 'ur';
+
+  List<({String title, String description, IconData icon})> get _slides => [
     (
-      title: 'VitalPro Reporting',
-      description:
-          'A professional reporting workspace for operational insight, fast analysis, and cleaner decision-making.',
+      title: _isUrdu ? 'وائٹل پرو رپورٹنگ' : 'VitalPro Reporting',
+      description: _isUrdu
+          ? 'روزمرہ کاروباری بصیرت، تیز تجزیہ، اور بہتر فیصلوں کے لیے ایک پیشہ ور رپورٹنگ پلیٹ فارم۔'
+          : 'A professional reporting workspace for operational insight, fast analysis, and cleaner decision-making.',
       icon: Icons.insights_rounded,
     ),
     (
-      title: 'Run Smart Reports',
-      description:
-          'Launch reusable SQL-based reports with flexible filters, guided inputs, and dynamic selections.',
+      title: _isUrdu ? 'اسمارٹ رپورٹس چلائیں' : 'Run Smart Reports',
+      description: _isUrdu
+          ? 'لچکدار فلٹرز، رہنمائی والے ان پٹس، اور متحرک انتخاب کے ساتھ دوبارہ قابل استعمال SQL رپورٹس چلائیں۔'
+          : 'Launch reusable SQL-based reports with flexible filters, guided inputs, and dynamic selections.',
       icon: Icons.play_circle_outline_rounded,
     ),
     (
-      title: 'Visualize Results',
-      description:
-          'Review data with chart previews, pie and bar views, expandable chart windows, and focused report viewers.',
+      title: _isUrdu ? 'نتائج کو بصری انداز میں دیکھیں' : 'Visualize Results',
+      description: _isUrdu
+          ? 'چارٹ پریویو، پائی اور بار ویوز، بڑی چارٹ ونڈوز، اور فوکسڈ رپورٹ ویور کے ساتھ ڈیٹا کا جائزہ لیں۔'
+          : 'Review data with chart previews, pie and bar views, expandable chart windows, and focused report viewers.',
       icon: Icons.pie_chart_outline_rounded,
     ),
     (
-      title: 'Export With Confidence',
-      description:
-          'Print reports, export PDF outputs, and inspect large tables in a dedicated zoomable viewer.',
+      title: _isUrdu ? 'اعتماد کے ساتھ ایکسپورٹ کریں' : 'Export With Confidence',
+      description: _isUrdu
+          ? 'رپورٹس پرنٹ کریں، PDF ایکسپورٹ کریں، اور بڑی ٹیبلز کو الگ زوم ایبل ویور میں دیکھیں۔'
+          : 'Print reports, export PDF outputs, and inspect large tables in a dedicated zoomable viewer.',
       icon: Icons.picture_as_pdf_outlined,
     ),
     (
-      title: 'Built For Teams',
-      description:
-          'Manage SQL connections, saved queries, companies, and user access from one secure admin workspace.',
+      title: _isUrdu ? 'ٹیموں کے لیے تیار' : 'Built For Teams',
+      description: _isUrdu
+          ? 'ایک محفوظ ایڈمن ورک اسپیس سے SQL کنکشنز، محفوظ کوئریز، کمپنیز، اور یوزر ایکسس کو منظم کریں۔'
+          : 'Manage SQL connections, saved queries, companies, and user access from one secure admin workspace.',
       icon: Icons.admin_panel_settings_outlined,
     ),
   ];
-
-  Timer? _slideTimer;
-  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -274,15 +349,51 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
                 child: Column(
                   children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: widget.onComplete,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        PopupMenuButton<String>(
+                          tooltip: _isUrdu
+                              ? 'زبان تبدیل کریں'
+                              : 'Change language',
+                          onSelected: (value) {
+                            widget.onLocaleChanged(
+                              value == 'ur'
+                                  ? const Locale('ur', 'PK')
+                                  : const Locale('en', 'US'),
+                            );
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'en',
+                              child: Text('English'),
+                            ),
+                            PopupMenuItem(value: 'ur', child: Text('اردو')),
+                          ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              color: Colors.white.withValues(alpha: 0.12),
+                            ),
+                            child: Text(
+                              _isUrdu ? 'اردو' : 'English',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
                         ),
-                        child: const Text('Skip'),
-                      ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: widget.onComplete,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Text(_isUrdu ? 'اسکپ' : 'Skip'),
+                        ),
+                      ],
                     ),
                     Expanded(
                       child: Center(
@@ -291,15 +402,24 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const VitalProLogo(
-                                size: 118,
-                                subtitle: 'Enterprise Reporting Platform',
+                              const VitalProLogo(size: 118, subtitle: ''),
+                              const SizedBox(height: 8),
+                              Text(
+                                _isUrdu
+                                    ? 'انٹرپرائز رپورٹنگ پلیٹ فارم'
+                                    : 'Enterprise Reporting Platform',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
+                                      color: const Color(0xFFD6E6F0),
+                                      fontWeight: FontWeight.w600,
+                                    ),
                               ),
                               const SizedBox(height: 28),
                               AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 500),
                                 child: Container(
-                                  key: ValueKey(_currentIndex),
+                                  key: ValueKey('${widget.locale.languageCode}-$_currentIndex'),
                                   padding: const EdgeInsets.all(28),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.10),
@@ -383,11 +503,13 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                             backgroundColor: Colors.white,
                             foregroundColor: const Color(0xFF103B5C),
                           ),
-                          child: const Text('Continue'),
+                          child: Text(_isUrdu ? 'جاری رکھیں' : 'Continue'),
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          'Powered by OneNet Solutions',
+                          _isUrdu
+                              ? 'نے اسے بنایا ہے  Vital Solutions'
+                              : 'Powered by Vital Solutions',
                           style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(
                                 color: Colors.white,
@@ -397,7 +519,9 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          'Serving for secure business reporting and analytics solutions.',
+                          _isUrdu
+                              ? 'محفوظ کاروباری رپورٹنگ اور تجزیاتی حل کے لیے'
+                              : 'For secure business reporting and analytics solutions.',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(

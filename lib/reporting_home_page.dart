@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -24,11 +24,15 @@ class ReportingHomePage extends StatefulWidget {
     required this.session,
     required this.onLogout,
     required this.homeMode,
+    required this.locale,
+    required this.onLocaleChanged,
   });
 
   final AuthSession session;
   final VoidCallback onLogout;
   final HomeMode homeMode;
+  final Locale locale;
+  final ValueChanged<Locale> onLocaleChanged;
 
   @override
   State<ReportingHomePage> createState() => _ReportingHomePageState();
@@ -88,6 +92,100 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   String get _apiBaseUrl => dotenv.env['API_BASE_URL'] ?? '';
 
   bool get _isAdminUser => widget.homeMode == HomeMode.admin;
+  bool get _isUrdu => widget.locale.languageCode == 'ur';
+  String _tr(String en, String ur) => _isUrdu ? ur : en;
+  String _displayLabel(String value) {
+    if (!_isUrdu) {
+      return value;
+    }
+
+    switch (value.trim().toLowerCase()) {
+      case 'cash':
+      case 'cash_amount':
+        return 'نقد';
+      case 'credit':
+      case 'credit_amount':
+        return 'ادھار';
+      case 'amount':
+      case 'total':
+      case 'total_amount':
+        return 'رقم';
+      case 'documentdate':
+        return 'دستاویز کی تاریخ';
+      default:
+        return value;
+    }
+  }
+
+  String _displayCompanyName(String value) {
+    if (!_isUrdu) {
+      return value;
+    }
+
+    switch (value.trim().toLowerCase()) {
+      case 'ajmairy garments':
+        return 'اجمیری گارمنٹس';
+      default:
+        return value;
+    }
+  }
+
+  String _displayCompanyAddress(String value) {
+    if (!_isUrdu) {
+      return value;
+    }
+
+    return value
+        .replaceAll(RegExp(r'\bRang\s+Mahal\b', caseSensitive: false), 'رنگ محل')
+        .replaceAll(RegExp(r'\bLahore\b', caseSensitive: false), 'لاہور');
+  }
+
+  String _displayQueryName(String value) {
+    return _localizedQueryName(value, isUrdu: _isUrdu);
+  }
+  String _roleLabel(UserRole role) {
+    switch (role) {
+      case UserRole.admin:
+        return _tr('Admin', 'ایڈمن');
+      case UserRole.reporting:
+        return _tr('Reporting', 'رپورٹنگ');
+    }
+  }
+
+  String _authenticationModeLabel(
+    AuthenticationMode mode, {
+    String username = '',
+  }) {
+    switch (mode) {
+      case AuthenticationMode.windows:
+        return _tr('Authentication: Windows', 'تصدیق: ونڈوز');
+      case AuthenticationMode.sqlServer:
+        return _tr(
+          'Authentication: SQL Login${username.isEmpty ? '' : ' ($username)'}',
+          'تصدیق: SQL لاگ اِن${username.isEmpty ? '' : ' ($username)'}',
+        );
+    }
+  }
+
+  String _queryFilterTypeLabel(QueryFilterType type) {
+    switch (type) {
+      case QueryFilterType.text:
+        return _tr('Text', 'متن');
+      case QueryFilterType.number:
+        return _tr('Number', 'نمبر');
+      case QueryFilterType.date:
+        return _tr('Date', 'تاریخ');
+    }
+  }
+
+  String _queryFilterInputModeLabel(QueryFilterInputType inputType) {
+    switch (inputType) {
+      case QueryFilterInputType.text:
+        return _tr('Text Input', 'متنی اندراج');
+      case QueryFilterInputType.dropdown:
+        return _tr('Dropdown', 'ڈراپ ڈاؤن');
+    }
+  }
 
   ApiClient get _apiClient =>
       ApiClient(baseUrl: _apiBaseUrl, authToken: widget.session.token);
@@ -176,9 +274,18 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _showChart = selectedQuery?.showChartByDefault ?? false;
         _statusMessage = bootstrap.servers.isEmpty || bootstrap.queries.isEmpty
             ? (_isAdminUser
-                  ? 'Add at least one SQL server and one saved query from Admin before running reports.'
-                  : 'Ask an admin to add at least one SQL server and one saved query before running reports.')
-            : 'Configuration loaded from MySQL.';
+                  ? _tr(
+                      'Add at least one SQL server and one saved query from Admin before running reports.',
+                      'رپورٹس چلانے سے پہلے ایڈمن سے کم از کم ایک SQL سرور اور ایک محفوظ کوئری شامل کریں۔',
+                    )
+                  : _tr(
+                      'Ask an admin to add at least one SQL server and one saved query before running reports.',
+                      'رپورٹس چلانے سے پہلے ایڈمن سے کہیں کہ کم از کم ایک SQL سرور اور ایک محفوظ کوئری شامل کرے۔',
+                    ))
+            : _tr(
+                'Configuration loaded from MySQL.',
+                'کنفیگریشن MySQL سے لوڈ ہو گئی ہے۔',
+              );
         _isLoading = false;
       });
 
@@ -194,8 +301,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
       setState(() {
         _isLoading = false;
-        _statusMessage =
-            'Could not load reporting configuration. Details: $error';
+        _statusMessage = _tr(
+          'Could not load reporting configuration. Details: $error',
+          'رپورٹنگ کنفیگریشن لوڈ نہیں ہو سکی۔ تفصیل: $error',
+        );
       });
     }
   }
@@ -252,7 +361,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       return;
     }
 
-    _showSnack('Default reporting server updated.');
+    _showSnack(
+      _tr(
+        'Default reporting server updated.',
+        'ڈیفالٹ رپورٹنگ سرور اپڈیٹ ہو گیا ہے۔',
+      ),
+    );
   }
 
   void _onQueryChanged(int? queryId) {
@@ -395,21 +509,34 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     final queryId = _selectedQueryId;
     final query = _selectedQuery;
     if (serverId == null || queryId == null) {
-      _showSnack('Select one SQL server and one saved query first.');
+      _showSnack(
+        _tr(
+          'Select one SQL server and one saved query first.',
+          'پہلے ایک SQL سرور اور ایک محفوظ کوئری منتخب کریں۔',
+        ),
+      );
       return;
     }
 
     for (final filter in query?.filters ?? const <QueryFilterDefinition>[]) {
       final value = _reportFilterControllers[filter.key]?.text.trim() ?? '';
       if (filter.isRequired && value.isEmpty) {
-        _showSnack('${filter.label} is required.');
+        _showSnack(
+          _tr(
+            '${filter.label} is required.',
+            '${filter.label} درج کرنا ضروری ہے۔',
+          ),
+        );
         return;
       }
     }
 
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Running report query...';
+      _statusMessage = _tr(
+        'Running report query...',
+        'رپورٹ کوئری چل رہی ہے...',
+      );
     });
 
     try {
@@ -439,7 +566,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         _chartLabelColumn = chartDefaults.labelColumn;
         _chartValueColumns = chartDefaults.valueColumns;
         _isBusy = false;
-        _statusMessage = 'Report returned ${result.rowCount} row(s).';
+        _statusMessage = _tr(
+          'Report returned ${result.rowCount} row(s).',
+          'رپورٹ نے ${result.rowCount} قطاریں واپس کیں۔',
+        );
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -453,22 +583,25 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
       setState(() {
         _isBusy = false;
-        _statusMessage = 'Could not run report. Details: $error';
+        _statusMessage = _tr(
+          'Could not run report. Details: $error',
+          'رپورٹ نہیں چل سکی۔ تفصیل: $error',
+        );
       });
     }
   }
 
   Future<void> _saveCompanyProfile() async {
     if (_companyNameController.text.trim().isEmpty) {
-      _showSnack('Company name is required.');
+      _showSnack(_tr('Company name is required.', 'کمپنی کا نام ضروری ہے۔'));
       return;
     }
 
     setState(() {
       _isBusy = true;
       _statusMessage = _editingCompanyId == null
-          ? 'Creating company...'
-          : 'Updating company...';
+          ? _tr('Creating company...', 'کمپنی بنائی جا رہی ہے...')
+          : _tr('Updating company...', 'کمپنی اپڈیٹ کی جا رہی ہے...');
     });
 
     try {
@@ -493,7 +626,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not save company. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not save company. Details: $error',
+          'کمپنی محفوظ نہیں ہو سکی۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -506,16 +644,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete Company'),
-          content: Text('Delete ${company.companyName} from saved companies?'),
+          title: Text(_tr('Delete Company', 'کمپنی حذف کریں')),
+          content: Text(
+            _tr(
+              'Delete ${company.companyName} from saved companies?',
+              '${company.companyName} کو محفوظ کمپنیوں سے حذف کریں؟',
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(_tr('Cancel', 'منسوخ کریں')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete'),
+              child: Text(_tr('Delete', 'حذف کریں')),
             ),
           ],
         );
@@ -528,7 +671,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Deleting company...';
+      _statusMessage = _tr('Deleting company...', 'کمپنی حذف کی جا رہی ہے...');
     });
 
     try {
@@ -548,7 +691,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not delete company. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not delete company. Details: $error',
+          'کمپنی حذف نہیں ہو سکی۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -556,22 +704,32 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     if (_serverNameController.text.trim().isEmpty ||
         _serverHostController.text.trim().isEmpty ||
         _serverDatabaseController.text.trim().isEmpty) {
-      _showSnack('Server name, host, and database are required.');
+      _showSnack(
+        _tr(
+          'Server name, host, and database are required.',
+          'سرور کا نام، ہوسٹ، اور ڈیٹابیس ضروری ہیں۔',
+        ),
+      );
       return;
     }
 
     if (_serverAuthenticationMode == AuthenticationMode.sqlServer &&
         (_serverUsernameController.text.trim().isEmpty ||
             _serverPasswordController.text.isEmpty)) {
-      _showSnack('Username and password are required for SQL login.');
+      _showSnack(
+        _tr(
+          'Username and password are required for SQL login.',
+          'SQL لاگ اِن کے لیے صارف نام اور پاس ورڈ ضروری ہیں۔',
+        ),
+      );
       return;
     }
 
     setState(() {
       _isBusy = true;
       _statusMessage = _editingServerId == null
-          ? 'Saving SQL server...'
-          : 'Updating SQL server...';
+          ? _tr('Saving SQL server...', 'SQL سرور محفوظ کیا جا رہا ہے...')
+          : _tr('Updating SQL server...', 'SQL سرور اپڈیٹ کیا جا رہا ہے...');
     });
 
     try {
@@ -600,7 +758,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not save SQL server. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not save SQL server. Details: $error',
+          'SQL سرور محفوظ نہیں ہو سکا۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -613,16 +776,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete SQL Server'),
-          content: Text('Delete ${server.label} from the saved server list?'),
+          title: Text(_tr('Delete SQL Server', 'SQL سرور حذف کریں')),
+          content: Text(
+            _tr(
+              'Delete ${server.label} from the saved server list?',
+              '${server.label} کو محفوظ سرور فہرست سے حذف کریں؟',
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(_tr('Cancel', 'منسوخ کریں')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete'),
+              child: Text(_tr('Delete', 'حذف کریں')),
             ),
           ],
         );
@@ -635,7 +803,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Deleting SQL server...';
+      _statusMessage = _tr(
+        'Deleting SQL server...',
+        'SQL سرور حذف کیا جا رہا ہے...',
+      );
     });
 
     try {
@@ -655,14 +826,24 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not delete SQL server. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not delete SQL server. Details: $error',
+          'SQL سرور حذف نہیں ہو سکا۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
   Future<void> _saveQuery() async {
     if (_queryNameController.text.trim().isEmpty ||
         _queryTextController.text.trim().isEmpty) {
-      _showSnack('Query name and SQL query text are required.');
+      _showSnack(
+        _tr(
+          'Query name and SQL query text are required.',
+          'کوئری کا نام اور SQL کوئری ٹیکسٹ ضروری ہیں۔',
+        ),
+      );
       return;
     }
 
@@ -672,11 +853,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     final seenKeys = <String>{};
     for (final filter in filterDefinitions) {
       if (filter.key.isEmpty || filter.label.isEmpty) {
-        _showSnack('Each query filter needs both a key and a label.');
+        _showSnack(
+          _tr(
+            'Each query filter needs both a key and a label.',
+            'ہر کوئری فلٹر کے لیے key اور label دونوں ضروری ہیں۔',
+          ),
+        );
         return;
       }
       if (!seenKeys.add(filter.key.toLowerCase())) {
-        _showSnack('Each query filter key must be unique.');
+        _showSnack(
+          _tr(
+            'Each query filter key must be unique.',
+            'ہر کوئری فلٹر key منفرد ہونی چاہیے۔',
+          ),
+        );
         return;
       }
     }
@@ -684,8 +875,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     setState(() {
       _isBusy = true;
       _statusMessage = _editingQueryId == null
-          ? 'Saving report query...'
-          : 'Updating report query...';
+          ? _tr('Saving report query...', 'رپورٹ کوئری محفوظ کی جا رہی ہے...')
+          : _tr('Updating report query...', 'رپورٹ کوئری اپڈیٹ کی جا رہی ہے...');
     });
 
     try {
@@ -711,7 +902,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not save report query. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not save report query. Details: $error',
+          'رپورٹ کوئری محفوظ نہیں ہو سکی۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -724,16 +920,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete Query'),
-          content: Text('Delete ${query.queryName} from saved report queries?'),
+          title: Text(_tr('Delete Query', 'کوئری حذف کریں')),
+          content: Text(
+            _tr(
+              'Delete ${query.queryName} from saved report queries?',
+              '${query.queryName} کو محفوظ رپورٹ کوئریز سے حذف کریں؟',
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(_tr('Cancel', 'منسوخ کریں')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete'),
+              child: Text(_tr('Delete', 'حذف کریں')),
             ),
           ],
         );
@@ -746,7 +947,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Deleting report query...';
+      _statusMessage = _tr(
+        'Deleting report query...',
+        'رپورٹ کوئری حذف کی جا رہی ہے...',
+      );
     });
 
     try {
@@ -766,26 +970,36 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not delete report query. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not delete report query. Details: $error',
+          'رپورٹ کوئری حذف نہیں ہو سکی۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
   Future<void> _saveUser() async {
     if (_userUsernameController.text.trim().isEmpty) {
-      _showSnack('Username is required.');
+      _showSnack(_tr('Username is required.', 'صارف نام ضروری ہے۔'));
       return;
     }
 
     if (_editingUserId == null && _userPasswordController.text.isEmpty) {
-      _showSnack('Password is required for a new user.');
+      _showSnack(
+        _tr(
+          'Password is required for a new user.',
+          'نئے صارف کے لیے پاس ورڈ ضروری ہے۔',
+        ),
+      );
       return;
     }
 
     setState(() {
       _isBusy = true;
       _statusMessage = _editingUserId == null
-          ? 'Creating user...'
-          : 'Updating user...';
+          ? _tr('Creating user...', 'صارف بنایا جا رہا ہے...')
+          : _tr('Updating user...', 'صارف اپڈیٹ کیا جا رہا ہے...');
     });
 
     try {
@@ -812,7 +1026,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not save user. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not save user. Details: $error',
+          'صارف محفوظ نہیں ہو سکا۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -821,16 +1040,21 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete User'),
-          content: Text('Delete ${user.username} from app users?'),
+          title: Text(_tr('Delete User', 'صارف حذف کریں')),
+          content: Text(
+            _tr(
+              'Delete ${user.username} from app users?',
+              '${user.username} کو ایپ صارفین سے حذف کریں؟',
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(_tr('Cancel', 'منسوخ کریں')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete'),
+              child: Text(_tr('Delete', 'حذف کریں')),
             ),
           ],
         );
@@ -843,7 +1067,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
     setState(() {
       _isBusy = true;
-      _statusMessage = 'Deleting user...';
+      _statusMessage = _tr('Deleting user...', 'صارف حذف کیا جا رہا ہے...');
     });
 
     try {
@@ -863,7 +1087,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       await _loadBootstrap();
       _showSnack(result.message);
     } catch (error) {
-      _handleAdminFailure('Could not delete user. Details: $error');
+      _handleAdminFailure(
+        _tr(
+          'Could not delete user. Details: $error',
+          'صارف حذف نہیں ہو سکا۔ تفصیل: $error',
+        ),
+      );
     }
   }
 
@@ -1179,7 +1408,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       pw.Text(
                         _companyProfile.companyName.trim().isEmpty
                             ? 'VitalPro Report'
-                            : _companyProfile.companyName,
+                            : _displayCompanyName(_companyProfile.companyName),
                         style: pw.TextStyle(
                           fontSize: 20,
                           fontWeight: pw.FontWeight.bold,
@@ -1188,7 +1417,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       if (_companyProfile.companyAddress.trim().isNotEmpty)
                         pw.Padding(
                           padding: const pw.EdgeInsets.only(top: 4),
-                          child: pw.Text(_companyProfile.companyAddress),
+                          child: pw.Text(
+                            _displayCompanyAddress(_companyProfile.companyAddress),
+                          ),
                         ),
                     ],
                   ),
@@ -1205,7 +1436,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('Query: ${report.queryName}'),
+                  pw.Text('Query: ${_displayQueryName(report.queryName)}'),
                   pw.Text('Server: ${report.serverName}'),
                   pw.Text('Executed: ${_formatTimestamp(report.executedAt)}'),
                   pw.Text(
@@ -1242,35 +1473,35 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   String get _pageTitle {
     if (widget.homeMode == HomeMode.reporting) {
-      return 'VitalPro Reporting';
+      return _tr('VitalPro Reporting', 'وائٹل پرو رپورٹنگ');
     }
 
     switch (_adminSection) {
       case AdminPanelSection.dashboard:
-        return 'VitalPro Admin';
+        return _tr('VitalPro Admin', 'وائٹل پرو ایڈمن');
       case AdminPanelSection.companies:
-        return 'Admin - Companies';
+        return _tr('Admin - Companies', 'ایڈمن - کمپنیاں');
       case AdminPanelSection.users:
-        return 'Admin - Users';
+        return _tr('Admin - Users', 'ایڈمن - صارفین');
       case AdminPanelSection.servers:
-        return 'Admin - SQL Servers';
+        return _tr('Admin - SQL Servers', 'ایڈمن - SQL سرورز');
       case AdminPanelSection.queries:
-        return 'Admin - Queries';
+        return _tr('Admin - Queries', 'ایڈمن - کوئریز');
     }
   }
 
   String _adminSectionLabel(AdminPanelSection section) {
     switch (section) {
       case AdminPanelSection.dashboard:
-        return 'Dashboard';
+        return _tr('Dashboard', 'ڈیش بورڈ');
       case AdminPanelSection.companies:
-        return 'Companies';
+        return _tr('Companies', 'کمپنیاں');
       case AdminPanelSection.users:
-        return 'Users';
+        return _tr('Users', 'صارفین');
       case AdminPanelSection.servers:
-        return 'SQL Servers';
+        return _tr('SQL Servers', 'SQL سرورز');
       case AdminPanelSection.queries:
-        return 'Queries';
+        return _tr('Queries', 'کوئریز');
     }
   }
 
@@ -1308,8 +1539,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             message:
                 _healthMessage ??
                 (_apiBaseUrl.trim().isEmpty
-                    ? 'API connection is not configured.'
-                    : 'API configured.'),
+                    ? _tr(
+                        'API connection is not configured.',
+                        'API کنکشن کنفیگر نہیں ہے۔',
+                      )
+                    : _tr('API configured.', 'API کنفیگر ہے۔')),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Icon(
@@ -1322,19 +1556,37 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           ),
           Tooltip(
             message:
-                'Signed in as ${widget.session.user.username} (${widget.session.user.role.name})',
+                _tr(
+                  'Signed in as ${widget.session.user.username} (${_roleLabel(widget.session.user.role)})',
+                  '${widget.session.user.username} کے طور پر سائن اِن ہے (${_roleLabel(widget.session.user.role)})',
+                ),
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Icon(Icons.account_circle_outlined),
             ),
           ),
+          PopupMenuButton<String>(
+            tooltip: _tr('Change language', 'زبان تبدیل کریں'),
+            onSelected: (value) {
+              widget.onLocaleChanged(
+                value == 'ur'
+                    ? const Locale('ur', 'PK')
+                    : const Locale('en', 'US'),
+              );
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'en', child: Text('English')),
+              PopupMenuItem(value: 'ur', child: Text('اردو')),
+            ],
+            icon: const Icon(Icons.language_outlined),
+          ),
           IconButton(
-            tooltip: 'Reload',
+            tooltip: _tr('Reload', 'ری لوڈ'),
             onPressed: _isLoading || _isBusy ? null : _loadBootstrap,
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
-            tooltip: 'Sign out',
+            tooltip: _tr('Sign out', 'سائن آؤٹ'),
             onPressed: _isBusy ? null : _signOut,
             icon: const Icon(Icons.logout),
           ),
@@ -1434,8 +1686,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               children: [
                 Text(
                   _companyProfile.companyName.trim().isEmpty
-                      ? 'Client reporting workspace'
-                      : _companyProfile.companyName,
+                      ? _tr(
+                          'Client reporting workspace',
+                          'کلائنٹ رپورٹنگ ورک اسپیس',
+                        )
+                      : _displayCompanyName(_companyProfile.companyName),
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF0A2540),
@@ -1445,8 +1700,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 const SizedBox(height: 8),
                 Text(
                   _companyProfile.companyAddress.trim().isEmpty
-                      ? 'Save the client company name, address, and logo from Admin.'
-                      : _companyProfile.companyAddress,
+                      ? _tr(
+                          'Save the client company name, address, and logo from Admin.',
+                          'کلائنٹ کمپنی کا نام، پتہ، اور لوگو ایڈمن سے محفوظ کریں۔',
+                        )
+                      : _displayCompanyAddress(_companyProfile.companyAddress),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF4F6478),
                   ),
@@ -1493,7 +1751,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Report Controls',
+              _tr('Report Controls', 'رپورٹ کنٹرولز'),
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: const Color(0xFF0A2540),
@@ -1501,7 +1759,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
             const SizedBox(height: 12),
             if (_servers.isEmpty)
-              _buildEmptyMessage('No SQL servers saved yet.')
+              _buildEmptyMessage(
+                _tr(
+                  'No SQL servers saved yet.',
+                  'ابھی تک کوئی SQL سرور محفوظ نہیں کیا گیا۔',
+                ),
+              )
             else
               RadioGroup<int>(
                 groupValue: _selectedServerId,
@@ -1554,14 +1817,20 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 final isCompact = constraints.maxWidth < 480;
                 final infoText = Text(
                   selectedServer == null
-                      ? 'Choose a server first.'
-                      : 'Selected server: ${selectedServer.label}',
+                      ? _tr(
+                          'Choose a server first.',
+                          'پہلے ایک سرور منتخب کریں۔',
+                        )
+                      : _tr(
+                          'Selected server: ${selectedServer.label}',
+                          'منتخب سرور: ${selectedServer.label}',
+                        ),
                   style: Theme.of(context).textTheme.bodyMedium,
                 );
                 final actionButton = OutlinedButton.icon(
                   onPressed: selectedServer == null ? null : _setDefaultServer,
                   icon: const Icon(Icons.star_outline),
-                  label: const Text('Set Default'),
+                  label: Text(_tr('Set Default', 'ڈیفالٹ بنائیں')),
                 );
 
                 if (isCompact) {
@@ -1592,14 +1861,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   .map(
                     (query) => DropdownMenuItem<int>(
                       value: query.id,
-                      child: Text(query.queryName),
+                      child: Text(_displayQueryName(query.queryName)),
                     ),
                   )
                   .toList(),
               onChanged: _queries.isEmpty ? null : _onQueryChanged,
-              decoration: const InputDecoration(
-                labelText: 'Saved query',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: _tr('Saved query', 'محفوظ کوئری'),
+                border: const OutlineInputBorder(),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -1617,13 +1886,27 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _showChart = value ?? false;
                 });
               },
-              title: const Text('Show chart if the result is chartable'),
+              title: Text(
+                _tr(
+                  'Show chart if the result is chartable',
+                  'اگر نتیجہ چارٹ کے قابل ہو تو چارٹ دکھائیں',
+                ),
+              ),
               subtitle: Text(
                 selectedQuery == null
-                    ? 'Select a query to use its default chart preference.'
+                    ? _tr(
+                        'Select a query to use its default chart preference.',
+                        'ڈیفالٹ چارٹ ترجیح استعمال کرنے کے لیے کوئری منتخب کریں۔',
+                      )
                     : selectedQuery.showChartByDefault
-                    ? 'This query is saved to show a chart by default.'
-                    : 'This query is saved without a default chart.',
+                    ? _tr(
+                        'This query is saved to show a chart by default.',
+                        'یہ کوئری ڈیفالٹ طور پر چارٹ دکھانے کے لیے محفوظ ہے۔',
+                      )
+                    : _tr(
+                        'This query is saved without a default chart.',
+                        'یہ کوئری بغیر ڈیفالٹ چارٹ کے محفوظ ہے۔',
+                      ),
               ),
             ),
             if (_statusMessage != null) ...[
@@ -1642,7 +1925,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.play_circle_outline),
-                label: const Text('Run Report'),
+                label: Text(_tr('Run Report', 'رپورٹ چلائیں')),
               ),
             ),
           ],
@@ -1669,7 +1952,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Report Output',
+                      _tr('Report Output', 'رپورٹ آؤٹ پٹ'),
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(
                             fontWeight: FontWeight.w700,
@@ -1685,7 +1968,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     IconButton(
                       onPressed: result == null ? null : _printReport,
                       icon: const Icon(Icons.print_outlined, size: 18),
-                      tooltip: 'Print',
+                      tooltip: _tr('Print', 'پرنٹ'),
                       constraints: const BoxConstraints.tightFor(
                         width: 32,
                         height: 32,
@@ -1699,7 +1982,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     IconButton(
                       onPressed: result == null ? null : _exportReportPdf,
                       icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                      tooltip: 'Export PDF',
+                      tooltip: _tr('Export PDF', 'PDF ایکسپورٹ کریں'),
                       constraints: const BoxConstraints.tightFor(
                         width: 32,
                         height: 32,
@@ -1733,22 +2016,28 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 10),
             if (result == null)
               _buildEmptyMessage(
-                'No report results yet. Run a saved query to load a table and optional chart.',
+                _tr(
+                  'No report results yet. Run a saved query to load a table and optional chart.',
+                  'ابھی تک رپورٹ کے نتائج موجود نہیں۔ جدول اور اختیاری چارٹ لوڈ کرنے کے لیے محفوظ کوئری چلائیں۔',
+                ),
               )
             else ...[
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  _buildMetricChip('Server', result.serverName),
-                  _buildMetricChip('Query', result.queryName),
-                  _buildMetricChip('Rows', '${result.rowCount}'),
+                  _buildMetricChip(_tr('Server', 'سرور'), result.serverName),
                   _buildMetricChip(
-                    'Executed',
+                    _tr('Query', 'کوئری'),
+                    _displayQueryName(result.queryName),
+                  ),
+                  _buildMetricChip(_tr('Rows', 'قطاریں'), '${result.rowCount}'),
+                  _buildMetricChip(
+                    _tr('Executed', 'اجراء'),
                     _formatTimestamp(result.executedAt),
                   ),
                   _buildMetricChip(
-                    'Time Taken',
+                    _tr('Time Taken', 'لگا ہوا وقت'),
                     _formatElapsedDuration(result.elapsedMs),
                   ),
                 ],
@@ -1779,7 +2068,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                 ),
                 icon: const Icon(Icons.open_in_full_rounded, size: 16),
-                label: const Text('Open Report Viewer'),
+                label: Text(_tr('Open Report Viewer', 'رپورٹ ویور کھولیں')),
               ),
             ],
           ],
@@ -1806,9 +2095,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       case AdminPanelSection.companies:
         return [
           _buildAdminPageIntro(
-            title: 'Companies & Clients',
+            title: _tr('Companies & Clients', 'کمپنیاں اور کلائنٹس'),
             description:
-                'Add multiple client companies and maintain each client profile separately.',
+                _tr(
+                  'Add multiple client companies and maintain each client profile separately.',
+                  'متعدد کلائنٹ کمپنیز شامل کریں اور ہر کلائنٹ پروفائل کو الگ سے منظم کریں۔',
+                ),
           ),
           const SizedBox(height: 20),
           _buildCompanyAdminCard(),
@@ -1818,9 +2110,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       case AdminPanelSection.users:
         return [
           _buildAdminPageIntro(
-            title: 'User Management',
+            title: _tr('User Management', 'صارف انتظام'),
             description:
-                'Create, update, and review application accounts from one place.',
+                _tr(
+                  'Create, update, and review application accounts from one place.',
+                  'ایک ہی جگہ سے ایپلیکیشن اکاؤنٹس بنائیں، اپڈیٹ کریں، اور جائزہ لیں۔',
+                ),
           ),
           const SizedBox(height: 20),
           _buildUserAdminCard(),
@@ -1830,9 +2125,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       case AdminPanelSection.servers:
         return [
           _buildAdminPageIntro(
-            title: 'SQL Server Management',
+            title: _tr('SQL Server Management', 'SQL سرور انتظام'),
             description:
-                'Configure MSSQL connections and maintain the saved server library.',
+                _tr(
+                  'Configure MSSQL connections and maintain the saved server library.',
+                  'MSSQL کنکشنز کنفیگر کریں اور محفوظ سرور لائبریری کو برقرار رکھیں۔',
+                ),
           ),
           const SizedBox(height: 20),
           _buildServerAdminCard(),
@@ -1842,9 +2140,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       case AdminPanelSection.queries:
         return [
           _buildAdminPageIntro(
-            title: 'Query Management',
+            title: _tr('Query Management', 'کوئری انتظام'),
             description:
-                'Maintain reusable SQL queries and their reporting filters.',
+                _tr(
+                  'Maintain reusable SQL queries and their reporting filters.',
+                  'دوبارہ قابل استعمال SQL کوئریز اور ان کے رپورٹنگ فلٹرز کو منظم کریں۔',
+                ),
           ),
           const SizedBox(height: 20),
           _buildQueryAdminCard(),
@@ -1865,7 +2166,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const VitalProLogo(size: 56, subtitle: 'Admin Workspace'),
+                  VitalProLogo(
+                    size: 56,
+                    subtitle: _tr('Admin Workspace', 'ایڈمن ورک اسپیس'),
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     widget.session.user.username,
@@ -1876,7 +2180,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Use the drawer to open each admin area separately.',
+                    _tr(
+                      'Use the drawer to open each admin area separately.',
+                      'ہر ایڈمن سیکشن الگ سے کھولنے کے لیے ڈراور استعمال کریں۔',
+                    ),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: const Color(0xFFB8C7D9),
                     ),
@@ -1917,8 +2224,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildAdminHeader() {
     final companyName = _companies.isEmpty
-        ? 'No client companies yet'
-        : '${_companies.length} client companies';
+        ? _tr('No client companies yet', 'ابھی کوئی کلائنٹ کمپنی نہیں')
+        : _tr(
+            '${_companies.length} client companies',
+            '${_companies.length} کلائنٹ کمپنیاں',
+          );
 
     return Container(
       decoration: BoxDecoration(
@@ -1944,10 +2254,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             final intro = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const VitalProLogo(size: 72, subtitle: 'Admin Workspace'),
+                VitalProLogo(
+                  size: 72,
+                  subtitle: _tr('Admin Workspace', 'ایڈمن ورک اسپیس'),
+                ),
                 const SizedBox(height: 18),
                 Text(
-                  'Operational Control Center',
+                  _tr('Operational Control Center', 'آپریشنل کنٹرول سینٹر'),
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
@@ -1955,7 +2268,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Manage client identity, user access, SQL connections, and reusable reporting queries from one controlled workspace.',
+                  _tr(
+                    'Manage client identity, user access, SQL connections, and reusable reporting queries from one controlled workspace.',
+                    'ایک کنٹرول شدہ ورک اسپیس سے کلائنٹ شناخت، صارف رسائی، SQL کنکشنز، اور محفوظ رپورٹنگ کوئریز منظم کریں۔',
+                  ),
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: const Color(0xFFD9E7F2),
                     height: 1.45,
@@ -1975,7 +2291,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Current profile',
+                    _tr('Current profile', 'موجودہ پروفائل'),
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: const Color(0xFFD9E7F2),
                       fontWeight: FontWeight.w700,
@@ -1992,17 +2308,26 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   const SizedBox(height: 12),
                   _buildHeroMetaRow(
                     icon: Icons.people_alt_outlined,
-                    text: '${_users.length} user accounts available',
+                    text: _tr(
+                      '${_users.length} user accounts available',
+                      '${_users.length} صارف اکاؤنٹس دستیاب',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _buildHeroMetaRow(
                     icon: Icons.storage_outlined,
-                    text: '${_servers.length} SQL endpoints configured',
+                    text: _tr(
+                      '${_servers.length} SQL endpoints configured',
+                      '${_servers.length} SQL اینڈ پوائنٹس کنفیگر ہیں',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _buildHeroMetaRow(
                     icon: Icons.description_outlined,
-                    text: '${_queries.length} saved report queries',
+                    text: _tr(
+                      '${_queries.length} saved report queries',
+                      '${_queries.length} محفوظ رپورٹ کوئریز',
+                    ),
                   ),
                 ],
               ),
@@ -2069,7 +2394,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Admin Sections',
+              _tr('Admin Sections', 'ایڈمن حصے'),
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: const Color(0xFF0A2540),
@@ -2077,7 +2402,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'A polished overview of your core admin data, with quick entry points for the areas that need attention.',
+              _tr(
+                'A polished overview of your core admin data, with quick entry points for the areas that need attention.',
+                'آپ کے بنیادی ایڈمن ڈیٹا کا جامع جائزہ، اور ان حصوں کے لیے فوری راستے جہاں توجہ درکار ہے۔',
+              ),
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
@@ -2093,40 +2421,60 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   runSpacing: 16,
                   children: [
                     _buildOverviewStatCard(
-                      label: 'Client Companies',
+                      label: _tr('Client Companies', 'کلائنٹ کمپنیاں'),
                       value: '${_companies.length}',
                       caption: _companies.isEmpty
-                          ? 'No client companies have been added yet.'
-                          : 'Client records are available for assignment and reporting.',
+                          ? _tr(
+                              'No client companies have been added yet.',
+                              'ابھی تک کوئی کلائنٹ کمپنی شامل نہیں کی گئی۔',
+                            )
+                          : _tr(
+                              'Client records are available for assignment and reporting.',
+                              'کلائنٹ ریکارڈز تفویض اور رپورٹنگ کے لیے دستیاب ہیں۔',
+                            ),
                       icon: Icons.business_outlined,
                       accent: const Color(0xFFE8F1F8),
                       width: tileWidth,
                     ),
                     _buildOverviewStatCard(
-                      label: 'User Accounts',
+                      label: _tr('User Accounts', 'صارف اکاؤنٹس'),
                       value: '${_users.length}',
-                      caption:
-                          '${_users.where((user) => user.isActive).length} active accounts currently available.',
+                      caption: _tr(
+                        '${_users.where((user) => user.isActive).length} active accounts currently available.',
+                        'اس وقت ${_users.where((user) => user.isActive).length} فعال اکاؤنٹس دستیاب ہیں۔',
+                      ),
                       icon: Icons.people_alt_outlined,
                       accent: const Color(0xFFEAF5F1),
                       width: tileWidth,
                     ),
                     _buildOverviewStatCard(
-                      label: 'SQL Servers',
+                      label: _tr('SQL Servers', 'SQL سرورز'),
                       value: '${_servers.length}',
                       caption: _servers.isEmpty
-                          ? 'No MSSQL servers connected yet.'
-                          : 'Saved endpoints are ready for reporting sessions.',
+                          ? _tr(
+                              'No MSSQL servers connected yet.',
+                              'ابھی تک کوئی MSSQL سرور منسلک نہیں ہوا۔',
+                            )
+                          : _tr(
+                              'Saved endpoints are ready for reporting sessions.',
+                              'محفوظ اینڈ پوائنٹس رپورٹنگ سیشنز کے لیے تیار ہیں۔',
+                            ),
                       icon: Icons.storage_outlined,
                       accent: const Color(0xFFF4ECFA),
                       width: tileWidth,
                     ),
                     _buildOverviewStatCard(
-                      label: 'Saved Queries',
+                      label: _tr('Saved Queries', 'محفوظ کوئریز'),
                       value: '${_queries.length}',
                       caption: _queries.isEmpty
-                          ? 'No reusable SQL query library yet.'
-                          : 'Report query catalog is available for runtime use.',
+                          ? _tr(
+                              'No reusable SQL query library yet.',
+                              'ابھی تک دوبارہ استعمال کے قابل SQL کوئری لائبریری موجود نہیں۔',
+                            )
+                          : _tr(
+                              'Report query catalog is available for runtime use.',
+                              'رپورٹ کوئری کیٹلاگ رَن ٹائم استعمال کے لیے دستیاب ہے۔',
+                            ),
                       icon: Icons.description_outlined,
                       accent: const Color(0xFFFEF3E8),
                       width: tileWidth,
@@ -2244,7 +2592,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Quick Actions',
+            _tr('Quick Actions', 'فوری اقدامات'),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF102A43),
@@ -2252,7 +2600,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Jump directly into the area that usually needs the next administrative update.',
+            _tr(
+              'Jump directly into the area that usually needs the next administrative update.',
+              'براہ راست اس حصے میں جائیں جہاں عموماً اگلی انتظامی اپڈیٹ درکار ہوتی ہے۔',
+            ),
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF627D98)),
@@ -2264,23 +2615,23 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             children: [
               _buildDashboardActionButton(
                 icon: Icons.business_outlined,
-                label: 'Manage Companies',
+                label: _tr('Manage Companies', 'کمپنیاں منظم کریں'),
                 section: AdminPanelSection.companies,
                 isPrimary: true,
               ),
               _buildDashboardActionButton(
                 icon: Icons.people_alt_outlined,
-                label: 'Manage Users',
+                label: _tr('Manage Users', 'صارفین منظم کریں'),
                 section: AdminPanelSection.users,
               ),
               _buildDashboardActionButton(
                 icon: Icons.storage_outlined,
-                label: 'Review Servers',
+                label: _tr('Review Servers', 'سرورز دیکھیں'),
                 section: AdminPanelSection.servers,
               ),
               _buildDashboardActionButton(
                 icon: Icons.description_outlined,
-                label: 'Open Queries',
+                label: _tr('Open Queries', 'کوئریز کھولیں'),
                 section: AdminPanelSection.queries,
               ),
             ],
@@ -2319,10 +2670,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildAdminOperationsPanel() {
     final readinessItems = [
-      (title: 'Client companies', ready: _companies.isNotEmpty),
-      (title: 'User access', ready: _users.isNotEmpty),
-      (title: 'SQL connectivity', ready: _servers.isNotEmpty),
-      (title: 'Query library', ready: _queries.isNotEmpty),
+      (
+        title: _tr('Client companies', 'کلائنٹ کمپنیاں'),
+        ready: _companies.isNotEmpty,
+      ),
+      (title: _tr('User access', 'صارف رسائی'), ready: _users.isNotEmpty),
+      (title: _tr('SQL connectivity', 'SQL کنیکٹیویٹی'), ready: _servers.isNotEmpty),
+      (title: _tr('Query library', 'کوئری لائبریری'), ready: _queries.isNotEmpty),
     ];
 
     return Container(
@@ -2336,7 +2690,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Operational Readiness',
+            _tr('Operational Readiness', 'آپریشنل تیاری'),
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF102A43),
@@ -2344,7 +2698,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'A quick health snapshot of the configuration needed for a smooth reporting workflow.',
+            _tr(
+              'A quick health snapshot of the configuration needed for a smooth reporting workflow.',
+              'ہموار رپورٹنگ ورک فلو کے لیے درکار کنفیگریشن کی فوری حالت۔',
+            ),
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF627D98)),
@@ -2370,7 +2727,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'API Status',
+                    _tr('API Status', 'API اسٹیٹس'),
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: const Color(0xFF486581),
@@ -2413,7 +2770,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           ),
         ),
         Text(
-          ready ? 'Ready' : 'Needs setup',
+          ready ? _tr('Ready', 'تیار') : _tr('Needs setup', 'سیٹ اپ درکار ہے'),
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
             fontWeight: FontWeight.w700,
             color: ready ? const Color(0xFF137752) : const Color(0xFFB56A00),
@@ -2450,7 +2807,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Company Profile',
+              _tr('Company Profile', 'کمپنی پروفائل'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -2458,20 +2815,23 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 20),
             _buildTextField(
               controller: _companyNameController,
-              label: 'Company name',
-              hint: 'VitalPro Client',
+              label: _tr('Company name', 'کمپنی کا نام'),
+              hint: _tr('VitalPro Client', 'وائٹل پرو کلائنٹ'),
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _companyAddressController,
-              label: 'Company address',
-              hint: 'Office address shown on the report header',
+              label: _tr('Company address', 'کمپنی کا پتہ'),
+              hint: _tr(
+                'Office address shown on the report header',
+                'رپورٹ ہیڈر میں دکھایا جانے والا دفتر کا پتہ',
+              ),
               maxLines: 3,
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _companyLogoController,
-              label: 'Company logo URL',
+              label: _tr('Company logo URL', 'کمپنی لوگو URL'),
               hint: 'https://example.com/logo.png',
             ),
             const SizedBox(height: 20),
@@ -2488,14 +2848,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   label: Text(
                     _editingCompanyId == null
-                        ? 'Create Company'
-                        : 'Update Company',
+                        ? _tr('Create Company', 'کمپنی بنائیں')
+                        : _tr('Update Company', 'کمپنی اپڈیٹ کریں'),
                   ),
                 ),
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _resetCompanyForm,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Clear'),
+                  label: Text(_tr('Clear', 'صاف کریں')),
                 ),
               ],
             ),
@@ -2513,14 +2873,19 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Saved Companies',
+              _tr('Saved Companies', 'محفوظ کمپنیاں'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_companies.isEmpty)
-              _buildEmptyMessage('No client companies saved yet.')
+              _buildEmptyMessage(
+                _tr(
+                  'No client companies saved yet.',
+                  'ابھی تک کوئی کلائنٹ کمپنی محفوظ نہیں کی گئی۔',
+                ),
+              )
             else
               ..._companies.map(
                 (company) => Container(
@@ -2539,8 +2904,8 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                           Expanded(
                             child: Text(
                               company.companyName.trim().isEmpty
-                                  ? 'Unnamed company'
-                                  : company.companyName,
+                                  ? _tr('Unnamed company', 'بے نام کمپنی')
+                                  : _displayCompanyName(company.companyName),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 16,
@@ -2548,12 +2913,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Edit company',
+                            tooltip: _tr('Edit company', 'کمپنی میں ترمیم کریں'),
                             onPressed: () => _loadCompanyForEditing(company),
                             icon: const Icon(Icons.edit_outlined),
                           ),
                           IconButton(
-                            tooltip: 'Delete company',
+                            tooltip: _tr('Delete company', 'کمپنی حذف کریں'),
                             onPressed: () => _deleteCompany(company),
                             icon: const Icon(Icons.delete_outline),
                           ),
@@ -2561,8 +2926,11 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                       Text(
                         company.companyAddress.trim().isEmpty
-                            ? 'No company address saved.'
-                            : company.companyAddress,
+                            ? _tr(
+                                'No company address saved.',
+                                'کمپنی کا کوئی پتہ محفوظ نہیں۔',
+                              )
+                            : _displayCompanyAddress(company.companyAddress),
                       ),
                     ],
                   ),
@@ -2584,7 +2952,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'SQL Server Setup',
+              _tr('SQL Server Setup', 'SQL سرور سیٹ اپ'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -2592,39 +2960,39 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 20),
             _buildTextField(
               controller: _serverNameController,
-              label: 'Server label',
+              label: _tr('Server label', 'سرور لیبل'),
               hint: 'Head Office ERP',
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _serverHostController,
-              label: 'Server host',
+              label: _tr('Server host', 'سرور ہوسٹ'),
               hint: '192.168.1.10 or SQLSERVER01',
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _serverPortController,
-              label: 'Port',
+              label: _tr('Port', 'پورٹ'),
               hint: '1433',
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _serverDatabaseController,
-              label: 'Database name',
+              label: _tr('Database name', 'ڈیٹابیس کا نام'),
               hint: 'ERPDB',
             ),
             const SizedBox(height: 20),
             SegmentedButton<AuthenticationMode>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: AuthenticationMode.sqlServer,
-                  label: Text('SQL Login'),
+                  label: Text(_tr('SQL Login', 'SQL لاگ اِن')),
                   icon: Icon(Icons.key_outlined),
                 ),
                 ButtonSegment(
                   value: AuthenticationMode.windows,
-                  label: Text('Windows Auth'),
+                  label: Text(_tr('Windows Auth', 'ونڈوز تصدیق')),
                   icon: Icon(Icons.badge_outlined),
                 ),
               ],
@@ -2639,14 +3007,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _serverUsernameController,
-                label: 'Username',
+                label: _tr('Username', 'صارف نام'),
                 hint: 'sa',
               ),
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _serverPasswordController,
-                label: 'Password',
-                hint: 'SQL login password',
+                label: _tr('Password', 'پاس ورڈ'),
+                hint: _tr('SQL login password', 'SQL لاگ اِن پاس ورڈ'),
                 obscureText: true,
                 isPasswordVisible: _isSqlPasswordVisible,
                 onTogglePasswordVisibility: () {
@@ -2670,14 +3038,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   ),
                   label: Text(
                     _editingServerId == null
-                        ? 'Save SQL Server'
-                        : 'Update Server',
+                        ? _tr('Save SQL Server', 'SQL سرور محفوظ کریں')
+                        : _tr('Update Server', 'سرور اپڈیٹ کریں'),
                   ),
                 ),
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _resetServerForm,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Clear'),
+                  label: Text(_tr('Clear', 'صاف کریں')),
                 ),
               ],
             ),
@@ -2697,7 +3065,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'App Users',
+              _tr('App Users', 'ایپ صارفین'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -2705,7 +3073,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 20),
             _buildTextField(
               controller: _userUsernameController,
-              label: 'Username',
+              label: _tr('Username', 'صارف نام'),
               hint: 'saleuser',
             ),
             const SizedBox(height: 16),
@@ -2713,9 +3081,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               key: ValueKey(_selectedAssignedCompanyId),
               initialValue: _selectedAssignedCompanyId,
               items: [
-                const DropdownMenuItem<int?>(
+                DropdownMenuItem<int?>(
                   value: null,
-                  child: Text('Unassigned'),
+                  child: Text(_tr('Unassigned', 'غیر تفویض شدہ')),
                 ),
                 ..._companies
                     .where((company) => company.id != null)
@@ -2731,9 +3099,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _selectedAssignedCompanyId = value;
                 });
               },
-              decoration: const InputDecoration(
-                labelText: 'Assigned company',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: _tr('Assigned company', 'تفویض کردہ کمپنی'),
+                border: const OutlineInputBorder(),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -2742,11 +3110,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             _buildTextField(
               controller: _userPasswordController,
               label: _editingUserId == null
-                  ? 'Password'
-                  : 'Password (leave blank to keep current)',
+                  ? _tr('Password', 'پاس ورڈ')
+                  : _tr(
+                      'Password (leave blank to keep current)',
+                      'پاس ورڈ (موجودہ رکھنے کے لیے خالی چھوڑ دیں)',
+                    ),
               hint: _editingUserId == null
-                  ? 'Enter user password'
-                  : 'Optional new password',
+                  ? _tr('Enter user password', 'صارف کا پاس ورڈ درج کریں')
+                  : _tr('Optional new password', 'اختیاری نیا پاس ورڈ'),
               obscureText: true,
               isPasswordVisible: _isUserPasswordVisible,
               onTogglePasswordVisibility: () {
@@ -2762,7 +3133,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   .map(
                     (role) => DropdownMenuItem<UserRole>(
                       value: role,
-                      child: Text(role.name),
+                      child: Text(_roleLabel(role)),
                     ),
                   )
                   .toList(),
@@ -2774,9 +3145,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _userRole = value;
                 });
               },
-              decoration: const InputDecoration(
-                labelText: 'Role',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: _tr('Role', 'کردار'),
+                border: const OutlineInputBorder(),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -2790,9 +3161,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _userIsActive = value ?? true;
                 });
               },
-              title: const Text('Active account'),
-              subtitle: const Text(
-                'Inactive users cannot sign in until re-enabled.',
+              title: Text(_tr('Active account', 'فعال اکاؤنٹ')),
+              subtitle: Text(
+                _tr(
+                  'Inactive users cannot sign in until re-enabled.',
+                  'غیر فعال صارف دوبارہ فعال ہونے تک سائن اِن نہیں کر سکتے۔',
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -2808,13 +3182,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         : Icons.save_outlined,
                   ),
                   label: Text(
-                    _editingUserId == null ? 'Create User' : 'Update User',
+                    _editingUserId == null
+                        ? _tr('Create User', 'صارف بنائیں')
+                        : _tr('Update User', 'صارف اپڈیٹ کریں'),
                   ),
                 ),
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _resetUserForm,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Clear'),
+                  label: Text(_tr('Clear', 'صاف کریں')),
                 ),
               ],
             ),
@@ -2834,14 +3210,16 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'User Directory',
+              _tr('User Directory', 'صارف فہرست'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_users.isEmpty)
-              _buildEmptyMessage('No app users found yet.')
+              _buildEmptyMessage(
+                _tr('No app users found yet.', 'ابھی تک کوئی ایپ صارف نہیں ملا۔'),
+              )
             else
               ..._users.map(
                 (user) => Container(
@@ -2867,12 +3245,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Edit user',
+                            tooltip: _tr('Edit user', 'صارف میں ترمیم کریں'),
                             onPressed: () => _loadUserForEditing(user),
                             icon: const Icon(Icons.edit_outlined),
                           ),
                           IconButton(
-                            tooltip: 'Delete user',
+                            tooltip: _tr('Delete user', 'صارف حذف کریں'),
                             onPressed: user.id == widget.session.user.id
                                 ? null
                                 : () => _deleteUser(user),
@@ -2880,14 +3258,24 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                           ),
                         ],
                       ),
-                      Text('Role: ${user.role.name}'),
-                      const SizedBox(height: 4),
                       Text(
-                        'Assigned company: ${user.assignedCompanyName.trim().isEmpty ? 'Unassigned' : user.assignedCompanyName}',
+                        _tr(
+                          'Role: ${_roleLabel(user.role)}',
+                          'کردار: ${_roleLabel(user.role)}',
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        user.isActive ? 'Status: active' : 'Status: inactive',
+                        _tr(
+                          'Assigned company: ${user.assignedCompanyName.trim().isEmpty ? 'Unassigned' : user.assignedCompanyName}',
+                          'تفویض کردہ کمپنی: ${user.assignedCompanyName.trim().isEmpty ? 'غیر تفویض شدہ' : user.assignedCompanyName}',
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        user.isActive
+                            ? _tr('Status: active', 'حالت: فعال')
+                            : _tr('Status: inactive', 'حالت: غیر فعال'),
                       ),
                     ],
                   ),
@@ -2909,14 +3297,19 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Saved SQL Servers',
+              _tr('Saved SQL Servers', 'محفوظ SQL سرورز'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_servers.isEmpty)
-              _buildEmptyMessage('No SQL servers saved in MySQL yet.')
+              _buildEmptyMessage(
+                _tr(
+                  'No SQL servers saved in MySQL yet.',
+                  'ابھی تک MySQL میں کوئی SQL سرور محفوظ نہیں کیا گیا۔',
+                ),
+              )
             else
               ..._servers.map(
                 (server) => Container(
@@ -2942,12 +3335,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Edit server',
+                            tooltip: _tr('Edit server', 'سرور میں ترمیم کریں'),
                             onPressed: () => _loadServerForEditing(server),
                             icon: const Icon(Icons.edit_outlined),
                           ),
                           IconButton(
-                            tooltip: 'Delete server',
+                            tooltip: _tr('Delete server', 'سرور حذف کریں'),
                             onPressed: () => _deleteServer(server),
                             icon: const Icon(Icons.delete_outline),
                           ),
@@ -2955,12 +3348,18 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                       Text('${server.host}:${server.port}'),
                       const SizedBox(height: 4),
-                      Text('Database: ${server.databaseName}'),
+                      Text(
+                        _tr(
+                          'Database: ${server.databaseName}',
+                          'ڈیٹابیس: ${server.databaseName}',
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       Text(
-                        server.authenticationMode == AuthenticationMode.windows
-                            ? 'Authentication: Windows'
-                            : 'Authentication: SQL Login (${server.username})',
+                        _authenticationModeLabel(
+                          server.authenticationMode,
+                          username: server.username,
+                        ),
                       ),
                     ],
                   ),
@@ -2982,7 +3381,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Saved Queries',
+              _tr('Saved Queries', 'محفوظ کوئریز'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -2990,27 +3389,30 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             const SizedBox(height: 20),
             _buildTextField(
               controller: _queryNameController,
-              label: 'Query name',
+              label: _tr('Query name', 'کوئری کا نام'),
               hint: 'Show Product',
             ),
             const SizedBox(height: 16),
             _buildTextField(
               controller: _queryTextController,
-              label: 'SQL query',
+              label: _tr('SQL query', 'SQL کوئری'),
               hint:
                   'SELECT * FROM products WHERE DocumentDate = {{DocumentDate}}',
               maxLines: 8,
             ),
             const SizedBox(height: 12),
             _buildStatusBanner(
-              'Use placeholders like {{DocumentDate}} inside the SQL. Filters can be text/date inputs or dropdowns backed by an options query, and the reporting screen will show matching filter fields above Run Report.',
+              _tr(
+                'Use placeholders like {{DocumentDate}} inside the SQL. Filters can be text/date inputs or dropdowns backed by an options query, and the reporting screen will show matching filter fields above Run Report.',
+                'SQL کے اندر {{DocumentDate}} جیسے پلیس ہولڈرز استعمال کریں۔ فلٹرز متن/تاریخ کے اندراج یا options query سے چلنے والے ڈراپ ڈاؤن ہو سکتے ہیں، اور رپورٹنگ اسکرین Run Report کے اوپر متعلقہ فلٹر فیلڈز دکھائے گی۔',
+              ),
             ),
             const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    'Query Filters',
+                    _tr('Query Filters', 'کوئری فلٹرز'),
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -3019,14 +3421,17 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _addQueryFilter,
                   icon: const Icon(Icons.add),
-                  label: const Text('Add Filter'),
+                  label: Text(_tr('Add Filter', 'فلٹر شامل کریں')),
                 ),
               ],
             ),
             const SizedBox(height: 12),
             if (_queryFilters.isEmpty)
               _buildEmptyMessage(
-                'No filters added yet. Example: add a date filter with key DocumentDate and use {{DocumentDate}} in the SQL.',
+                _tr(
+                  'No filters added yet. Example: add a date filter with key DocumentDate and use {{DocumentDate}} in the SQL.',
+                  'ابھی تک کوئی فلٹر شامل نہیں کیا گیا۔ مثال کے طور پر DocumentDate key کے ساتھ تاریخ فلٹر شامل کریں اور SQL میں {{DocumentDate}} استعمال کریں۔',
+                ),
               )
             else
               ...List.generate(
@@ -3042,9 +3447,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   _showQueryChartByDefault = value ?? false;
                 });
               },
-              title: const Text('Show chart by default'),
-              subtitle: const Text(
-                'The reporting page will automatically enable the chart toggle for this query.',
+              title: Text(_tr('Show chart by default', 'چارٹ بطور ڈیفالٹ دکھائیں')),
+              subtitle: Text(
+                _tr(
+                  'The reporting page will automatically enable the chart toggle for this query.',
+                  'رپورٹنگ صفحہ اس کوئری کے لیے چارٹ ٹوگل خودکار طور پر فعال کر دے گا۔',
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -3060,13 +3468,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         : Icons.save_outlined,
                   ),
                   label: Text(
-                    _editingQueryId == null ? 'Save Query' : 'Update Query',
+                    _editingQueryId == null
+                        ? _tr('Save Query', 'کوئری محفوظ کریں')
+                        : _tr('Update Query', 'کوئری اپڈیٹ کریں'),
                   ),
                 ),
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _resetQueryForm,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Clear'),
+                  label: Text(_tr('Clear', 'صاف کریں')),
                 ),
               ],
             ),
@@ -3086,14 +3496,19 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Query Library',
+              _tr('Query Library', 'کوئری لائبریری'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
             if (_queries.isEmpty)
-              _buildEmptyMessage('No report queries saved in MySQL yet.')
+              _buildEmptyMessage(
+                _tr(
+                  'No report queries saved in MySQL yet.',
+                  'ابھی تک MySQL میں کوئی رپورٹ کوئری محفوظ نہیں کی گئی۔',
+                ),
+              )
             else
               ..._queries.map(
                 (query) => Container(
@@ -3111,7 +3526,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                         children: [
                           Expanded(
                             child: Text(
-                              query.queryName,
+                              _displayQueryName(query.queryName),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 16,
@@ -3119,12 +3534,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Edit query',
+                            tooltip: _tr('Edit query', 'کوئری میں ترمیم کریں'),
                             onPressed: () => _loadQueryForEditing(query),
                             icon: const Icon(Icons.edit_outlined),
                           ),
                           IconButton(
-                            tooltip: 'Delete query',
+                            tooltip: _tr('Delete query', 'کوئری حذف کریں'),
                             onPressed: () => _deleteQuery(query),
                             icon: const Icon(Icons.delete_outline),
                           ),
@@ -3132,14 +3547,23 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                       Text(
                         query.queryText.trim().isEmpty
-                            ? 'Query text hidden until admin data is loaded.'
+                            ? _tr(
+                                'Query text hidden until admin data is loaded.',
+                                'ایڈمن ڈیٹا لوڈ ہونے تک کوئری ٹیکسٹ مخفی ہے۔',
+                              )
                             : query.queryText,
                       ),
                       const SizedBox(height: 8),
                       Text(
                         query.showChartByDefault
-                            ? 'Chart default: enabled'
-                            : 'Chart default: disabled',
+                            ? _tr(
+                                'Chart default: enabled',
+                                'چارٹ ڈیفالٹ: فعال',
+                              )
+                            : _tr(
+                                'Chart default: disabled',
+                                'چارٹ ڈیفالٹ: غیر فعال',
+                              ),
                       ),
                       if (query.filters.isNotEmpty) ...[
                         const SizedBox(height: 8),
@@ -3150,7 +3574,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                               .map(
                                 (filter) => Chip(
                                   label: Text(
-                                    '${filter.label} (${filter.type.name})',
+                                    '${filter.label} (${_queryFilterTypeLabel(filter.type)})',
                                   ),
                                 ),
                               )
@@ -3173,6 +3597,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       barrierDismissible: true,
       builder: (context) => _ReportViewerDialog(
         result: result,
+        locale: widget.locale,
         onPrint: _printReport,
         onExportPdf: _exportReportPdf,
       ),
@@ -3186,6 +3611,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       builder: (context) => _ChartViewerDialog(
         chartData: chartData,
         initialVisualType: _chartVisualType,
+        locale: widget.locale,
       ),
     );
   }
@@ -3208,13 +3634,13 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           decoration: InputDecoration(
             labelText: label,
             hintText: filter.placeholder.isEmpty
-                ? 'dd-MMM-yyyy'
+                ? _tr('dd-MMM-yyyy', 'dd-MMM-yyyy')
                 : filter.placeholder,
             border: const OutlineInputBorder(),
             filled: true,
             fillColor: Colors.white,
             suffixIcon: IconButton(
-              tooltip: 'Pick date',
+              tooltip: _tr('Pick date', 'تاریخ منتخب کریں'),
               onPressed: () => _pickDateFilterValue(filter),
               icon: const Icon(Icons.calendar_today_outlined),
             ),
@@ -3238,7 +3664,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           decoration: InputDecoration(
             labelText: label,
             hintText: filter.placeholder.isEmpty
-                ? 'Select ${filter.label.toLowerCase()}'
+                ? _tr(
+                    'Select ${filter.label.toLowerCase()}',
+                    '${filter.label} منتخب کریں',
+                  )
                 : filter.placeholder,
             border: const OutlineInputBorder(),
             filled: true,
@@ -3253,16 +3682,16 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     ),
                   )
                 : IconButton(
-                    tooltip: 'Refresh values',
+                    tooltip: _tr('Refresh values', 'ویلیوز ریفریش کریں'),
                     onPressed: () => _refreshReportFilterOptions(filterKey: filter.key),
                     icon: const Icon(Icons.refresh_outlined),
                   ),
           ),
           items: [
             if (!filter.isRequired)
-              const DropdownMenuItem<String>(
+              DropdownMenuItem<String>(
                 value: '',
-                child: Text('All'),
+                child: Text(_tr('All', 'تمام')),
               ),
             ...options.map(
               (option) => DropdownMenuItem<String>(
@@ -3312,12 +3741,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
             children: [
               Expanded(
                 child: Text(
-                  'Filter ${index + 1}',
+                  _tr('Filter ${index + 1}', 'فلٹر ${index + 1}'),
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
               IconButton(
-                tooltip: 'Remove filter',
+                tooltip: _tr('Remove filter', 'فلٹر ہٹائیں'),
                 onPressed: _isBusy ? null : () => _removeQueryFilter(index),
                 icon: const Icon(Icons.delete_outline),
               ),
@@ -3326,14 +3755,14 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.keyController,
-            label: 'Filter key',
+            label: _tr('Filter key', 'فلٹر key'),
             hint: 'DocumentDate',
           ),
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.labelController,
-            label: 'Filter label',
-            hint: 'Document Date',
+            label: _tr('Filter label', 'فلٹر label'),
+            hint: _tr('Document Date', 'دستاویز کی تاریخ'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<QueryFilterType>(
@@ -3342,7 +3771,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 .map(
                   (type) => DropdownMenuItem<QueryFilterType>(
                     value: type,
-                    child: Text(type.name),
+                    child: Text(_queryFilterTypeLabel(type)),
                   ),
                 )
                 .toList(),
@@ -3356,9 +3785,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               });
               filter.dispose();
             },
-            decoration: const InputDecoration(
-              labelText: 'Filter type',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: _tr('Filter type', 'فلٹر کی قسم'),
+              border: const OutlineInputBorder(),
               filled: true,
               fillColor: Colors.white,
             ),
@@ -3370,7 +3799,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 .map(
                   (inputType) => DropdownMenuItem<QueryFilterInputType>(
                     value: inputType,
-                    child: Text(inputType.name),
+                    child: Text(_queryFilterInputModeLabel(inputType)),
                   ),
                 )
                 .toList(),
@@ -3384,9 +3813,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               });
               filter.dispose();
             },
-            decoration: const InputDecoration(
-              labelText: 'Input mode',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: _tr('Input mode', 'ان پٹ موڈ'),
+              border: const OutlineInputBorder(),
               filled: true,
               fillColor: Colors.white,
             ),
@@ -3394,24 +3823,24 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.placeholderController,
-            label: 'Placeholder',
+            label: _tr('Placeholder', 'پلیس ہولڈر'),
             hint: filter.type == QueryFilterType.date
                 ? 'dd-MMM-yyyy'
-                : 'Optional hint',
+                : _tr('Optional hint', 'اختیاری اشارہ'),
           ),
           const SizedBox(height: 12),
           _buildTextField(
             controller: filter.defaultValueController,
-            label: 'Default value',
+            label: _tr('Default value', 'ڈیفالٹ ویلیو'),
             hint: filter.type == QueryFilterType.date
                 ? '09-Feb-2026'
-                : 'Optional default',
+                : _tr('Optional default', 'اختیاری ڈیفالٹ'),
           ),
           if (filter.inputType == QueryFilterInputType.dropdown) ...[
             const SizedBox(height: 12),
             _buildTextField(
               controller: filter.optionsQueryController,
-              label: 'Options query',
+              label: _tr('Options query', 'آپشنز کوئری'),
               hint:
                   'SELECT DISTINCT SubsideryTitle FROM ... WHERE CAST(DocumentDate AS date) = {{DocumentDate}} ORDER BY 1',
               maxLines: 5,
@@ -3427,7 +3856,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               });
               filter.dispose();
             },
-            title: const Text('Required filter'),
+            title: Text(_tr('Required filter', 'لازمی فلٹر')),
           ),
         ],
       ),
@@ -3450,7 +3879,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               (_) => const Color(0xFFE9F5FA),
             ),
             columns: result.columns
-                .map((column) => DataColumn(label: Text(column)))
+                .map((column) => DataColumn(label: Text(_displayLabel(column))))
                 .toList(),
             rows: result.rows
                 .map(
@@ -3504,28 +3933,31 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Chart Preview',
+                    _tr('Chart Preview', 'چارٹ پری ویو'),
                     style: Theme.of(
                       context,
                     ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Type: ${_chartVisualType == _ChartVisualType.bar ? 'Bar' : 'Pie'}  -  Label: ${chartData.labelColumn}  -  Values: ${chartData.valueColumns.join(', ')}',
+                    _tr(
+                      'Type: ${_chartVisualType == _ChartVisualType.bar ? 'Bar' : 'Pie'}  -  Label: ${_displayLabel(chartData.labelColumn)}  -  Values: ${chartData.valueColumns.map(_displayLabel).join(', ')}',
+                      'قسم: ${_chartVisualType == _ChartVisualType.bar ? 'بار' : 'پائی'}  -  لیبل: ${_displayLabel(chartData.labelColumn)}  -  ویلیوز: ${chartData.valueColumns.map(_displayLabel).join(', ')}',
+                    ),
                   ),
                 ],
               );
               final actionBlock = SegmentedButton<_ChartVisualType>(
-                segments: const [
+                segments: [
                   ButtonSegment<_ChartVisualType>(
                     value: _ChartVisualType.bar,
                     icon: Icon(Icons.bar_chart_rounded),
-                    label: Text('Bar'),
+                    label: Text(_tr('Bar', 'بار')),
                   ),
                   ButtonSegment<_ChartVisualType>(
                     value: _ChartVisualType.pie,
                     icon: Icon(Icons.pie_chart_rounded),
-                    label: Text('Pie'),
+                    label: Text(_tr('Pie', 'پائی')),
                   ),
                 ],
                 selected: {_chartVisualType},
@@ -3560,7 +3992,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           if (chartData.truncated) ...[
             const SizedBox(height: 4),
             Text(
-              'Showing the first ${chartData.points.length} rows for readability.',
+              _tr(
+                'Showing the first ${chartData.points.length} rows for readability.',
+                'آسان مطالعہ کے لیے پہلی ${chartData.points.length} قطاریں دکھائی جا رہی ہیں۔',
+              ),
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: const Color(0xFF4F6478)),
@@ -3568,7 +4003,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
           ],
           const SizedBox(height: 4),
           Text(
-            'Double-tap the chart to open it in a larger viewer.',
+            _tr(
+              'Double-tap the chart to open it in a larger viewer.',
+              'چارٹ کو بڑے ویور میں کھولنے کے لیے اسے دو بار تھپتھپائیں۔',
+            ),
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: const Color(0xFF5E7688)),
@@ -3591,7 +4029,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Total Amount',
+                  _tr('Total Amount', 'کل رقم'),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: const Color(0xFF355468),
                     fontWeight: FontWeight.w700,
@@ -3732,7 +4170,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${chartData.valueColumns[index]}: ${(seriesTotals[chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
+                        '${_displayLabel(chartData.valueColumns[index])}: ${(seriesTotals[chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
                       ),
                     ],
                   ),
@@ -3757,7 +4195,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(chartData.valueColumns[index]),
+                    Text(_displayLabel(chartData.valueColumns[index])),
                   ],
                 ),
             ],
@@ -3769,12 +4207,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildChartOptionsCard(ReportResult result) {
     final labelOptions = [
-      const DropdownMenuItem<String>(
+      DropdownMenuItem<String>(
         value: _rowLabelColumnKey,
-        child: Text('Row number'),
+        child: Text(_tr('Row number', 'قطار نمبر')),
       ),
       ...result.columns.map(
-        (column) => DropdownMenuItem<String>(value: column, child: Text(column)),
+        (column) => DropdownMenuItem<String>(
+          value: column,
+          child: Text(_displayLabel(column)),
+        ),
       ),
     ];
     final valueColumns = _numericChartColumns(result);
@@ -3791,14 +4232,17 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Chart Options',
+            _tr('Chart Options', 'چارٹ آپشنز'),
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
-            'Choose which columns to use for chart labels and values at runtime.',
+            _tr(
+              'Choose which columns to use for chart labels and values at runtime.',
+              'رَن ٹائم پر چارٹ لیبلز اور ویلیوز کے لیے استعمال ہونے والے کالم منتخب کریں۔',
+            ),
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF4F6478)),
@@ -3809,9 +4253,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               final isCompact = constraints.maxWidth < 640;
               final labelField = DropdownButtonFormField<String>(
                 initialValue: _chartLabelColumn,
-                decoration: const InputDecoration(
-                  labelText: 'Label column',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: _tr('Label column', 'لیبل کالم'),
+                  border: const OutlineInputBorder(),
                   filled: true,
                   fillColor: Colors.white,
                 ),
@@ -3837,7 +4281,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Value columns',
+                      _tr('Value columns', 'ویلیو کالمز'),
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: const Color(0xFF355468),
                         fontWeight: FontWeight.w700,
@@ -3850,7 +4294,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                       children: valueColumns
                           .map(
                             (column) => FilterChip(
-                              label: Text(column),
+                              label: Text(_displayLabel(column)),
                               selected: _chartValueColumns.contains(column),
                               onSelected: (selected) {
                                 setState(() {
@@ -3903,9 +4347,15 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   String _buildChartUnavailableMessage(ReportResult result) {
     final valueColumns = _numericChartColumns(result);
     if (valueColumns.isEmpty) {
-      return 'Chart preview is enabled, but the result set needs at least one numeric column.';
+      return _tr(
+        'Chart preview is enabled, but the result set needs at least one numeric column.',
+        'چارٹ پری ویو فعال ہے، لیکن نتیجے کے مجموعے میں کم از کم ایک عددی کالم ہونا چاہیے۔',
+      );
     }
-    return 'Chart preview is enabled, but the selected chart columns do not produce any numeric points.';
+    return _tr(
+      'Chart preview is enabled, but the selected chart columns do not produce any numeric points.',
+      'چارٹ پری ویو فعال ہے، لیکن منتخب چارٹ کالمز کوئی عددی پوائنٹس پیدا نہیں کرتے۔',
+    );
   }
 
   _ChartSelection _resolveChartSelection(ReportResult result) {
@@ -3994,7 +4444,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         continue;
       }
       final rawLabel = labelColumn == _rowLabelColumnKey
-          ? 'Row ${index + 1}'
+          ? _tr('Row ${index + 1}', 'قطار ${index + 1}')
           : _formatCell(row[labelColumn]);
       points.add(_ChartPoint(_trimLabel(rawLabel), values));
     }
@@ -4004,7 +4454,10 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     }
 
     return _ChartData(
-      labelColumn: labelColumn == _rowLabelColumnKey ? 'Row number' : labelColumn,
+      labelColumn:
+          labelColumn == _rowLabelColumnKey
+              ? _tr('Row number', 'قطار نمبر')
+              : _displayLabel(labelColumn),
       valueColumns: safeValueColumns,
       points: points,
       truncated: result.rows.length > points.length,
@@ -4176,11 +4629,13 @@ class _ChartSelection {
 class _ReportViewerDialog extends StatefulWidget {
   const _ReportViewerDialog({
     required this.result,
+    required this.locale,
     required this.onPrint,
     required this.onExportPdf,
   });
 
   final ReportResult result;
+  final Locale locale;
   final Future<void> Function() onPrint;
   final Future<void> Function() onExportPdf;
 
@@ -4192,6 +4647,8 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
   final TransformationController _transformationController =
       TransformationController();
   double _scale = 1;
+  bool get _isUrdu => widget.locale.languageCode == 'ur';
+  String _tr(String en, String ur) => _isUrdu ? ur : en;
 
   @override
   void dispose() {
@@ -4234,7 +4691,7 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Report Viewer',
+                        _tr('Report Viewer', 'رپورٹ ویور'),
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(
                               fontWeight: FontWeight.w700,
@@ -4243,7 +4700,10 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${widget.result.queryName}  -  ${widget.result.rowCount} row(s)',
+                        _tr(
+                          '${_localizedQueryName(widget.result.queryName, isUrdu: _isUrdu)}  -  ${widget.result.rowCount} row(s)',
+                          '${_localizedQueryName(widget.result.queryName, isUrdu: _isUrdu)}  -  ${widget.result.rowCount} قطاریں',
+                        ),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: const Color(0xFF4F6478),
                         ),
@@ -4257,33 +4717,33 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                     children: [
                       _ViewerIconButton(
                         onPressed: _zoomOut,
-                        tooltip: 'Zoom out',
+                        tooltip: _tr('Zoom out', 'زوم آؤٹ'),
                         icon: Icons.zoom_out_rounded,
                       ),
                       _ViewerIconButton(
                         onPressed: _resetZoom,
-                        tooltip: 'Reset zoom',
+                        tooltip: _tr('Reset zoom', 'زوم ری سیٹ کریں'),
                         icon: Icons.center_focus_strong_rounded,
                         badge: '${(_scale * 100).round()}%',
                       ),
                       _ViewerIconButton(
                         onPressed: _zoomIn,
-                        tooltip: 'Zoom in',
+                        tooltip: _tr('Zoom in', 'زوم اِن'),
                         icon: Icons.zoom_in_rounded,
                       ),
                       _ViewerIconButton(
                         onPressed: widget.onPrint,
-                        tooltip: 'Print',
+                        tooltip: _tr('Print', 'پرنٹ'),
                         icon: Icons.print_outlined,
                       ),
                       _ViewerIconButton(
                         onPressed: widget.onExportPdf,
-                        tooltip: 'Export PDF',
+                        tooltip: _tr('Export PDF', 'PDF ایکسپورٹ کریں'),
                         icon: Icons.picture_as_pdf_outlined,
                       ),
                       _ViewerIconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        tooltip: 'Close',
+                        tooltip: _tr('Close', 'بند کریں'),
                         icon: Icons.close_rounded,
                         isPrimary: true,
                       ),
@@ -4312,16 +4772,22 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _MetricChip(label: 'Server', value: widget.result.serverName),
                   _MetricChip(
-                    label: 'Executed',
+                    label: _tr('Server', 'سرور'),
+                    value: widget.result.serverName,
+                  ),
+                  _MetricChip(
+                    label: _tr('Executed', 'اجراء'),
                     value: _formatViewerTimestamp(widget.result.executedAt),
                   ),
                   _MetricChip(
-                    label: 'Time Taken',
+                    label: _tr('Time Taken', 'لگا ہوا وقت'),
                     value: _formatViewerElapsed(widget.result.elapsedMs),
                   ),
-                  _MetricChip(label: 'Rows', value: '${widget.result.rowCount}'),
+                  _MetricChip(
+                    label: _tr('Rows', 'قطاریں'),
+                    value: '${widget.result.rowCount}',
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -4368,7 +4834,10 @@ class _ReportViewerDialogState extends State<_ReportViewerDialog> {
                                 .map(
                                   (column) => DataColumn(
                                     label: Text(
-                                      column,
+                                      _localizedReportLabel(
+                                        column,
+                                        isUrdu: _isUrdu,
+                                      ),
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w700,
                                         color: Color(0xFF103B5C),
@@ -4425,10 +4894,12 @@ class _ChartViewerDialog extends StatefulWidget {
   const _ChartViewerDialog({
     required this.chartData,
     required this.initialVisualType,
+    required this.locale,
   });
 
   final _ChartData chartData;
   final _ChartVisualType initialVisualType;
+  final Locale locale;
 
   @override
   State<_ChartViewerDialog> createState() => _ChartViewerDialogState();
@@ -4436,6 +4907,8 @@ class _ChartViewerDialog extends StatefulWidget {
 
 class _ChartViewerDialogState extends State<_ChartViewerDialog> {
   late _ChartVisualType _visualType;
+  bool get _isUrdu => widget.locale.languageCode == 'ur';
+  String _tr(String en, String ur) => _isUrdu ? ur : en;
 
   static const _chartColors = [
     Color(0xFF2563EB),
@@ -4482,7 +4955,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Chart Viewer',
+                          _tr('Chart Viewer', 'چارٹ ویور'),
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.w700,
@@ -4491,7 +4964,10 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Label: ${widget.chartData.labelColumn}  -  Values: ${widget.chartData.valueColumns.join(', ')}',
+                          _tr(
+                            'Label: ${_localizedReportLabel(widget.chartData.labelColumn, isUrdu: _isUrdu)}  -  Values: ${widget.chartData.valueColumns.map((column) => _localizedReportLabel(column, isUrdu: _isUrdu)).join(', ')}',
+                            'لیبل: ${_localizedReportLabel(widget.chartData.labelColumn, isUrdu: _isUrdu)}  -  ویلیوز: ${widget.chartData.valueColumns.map((column) => _localizedReportLabel(column, isUrdu: _isUrdu)).join(', ')}',
+                          ),
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF4F6478),
                           ),
@@ -4504,29 +4980,29 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                     spacing: 4,
                     runSpacing: 4,
                     children: [
-                      _ViewerIconButton(
-                        onPressed: () {
-                          setState(() {
-                            _visualType = _ChartVisualType.bar;
-                          });
-                        },
-                        tooltip: 'Bar chart',
+                        _ViewerIconButton(
+                          onPressed: () {
+                            setState(() {
+                              _visualType = _ChartVisualType.bar;
+                            });
+                          },
+                        tooltip: _tr('Bar chart', 'بار چارٹ'),
                         icon: Icons.bar_chart_rounded,
                         isPrimary: _visualType == _ChartVisualType.bar,
                       ),
                       _ViewerIconButton(
-                        onPressed: () {
-                          setState(() {
-                            _visualType = _ChartVisualType.pie;
-                          });
-                        },
-                        tooltip: 'Pie chart',
+                          onPressed: () {
+                            setState(() {
+                              _visualType = _ChartVisualType.pie;
+                            });
+                          },
+                        tooltip: _tr('Pie chart', 'پائی چارٹ'),
                         icon: Icons.pie_chart_rounded,
                         isPrimary: _visualType == _ChartVisualType.pie,
                       ),
                       _ViewerIconButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        tooltip: 'Close',
+                        tooltip: _tr('Close', 'بند کریں'),
                         icon: Icons.close_rounded,
                       ),
                     ],
@@ -4551,7 +5027,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'Total Amount',
+                      _tr('Total Amount', 'کل رقم'),
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: const Color(0xFF355468),
                         fontWeight: FontWeight.w700,
@@ -4721,7 +5197,7 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          '${widget.chartData.valueColumns[index]}: ${(seriesTotals[widget.chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
+                                          '${_localizedReportLabel(widget.chartData.valueColumns[index], isUrdu: _isUrdu)}: ${(seriesTotals[widget.chartData.valueColumns[index]] ?? 0).toStringAsFixed(2)}',
                                         ),
                                       ],
                                     ),
@@ -4737,6 +5213,46 @@ class _ChartViewerDialogState extends State<_ChartViewerDialog> {
         ),
       ),
     );
+  }
+}
+
+String _localizedReportLabel(String value, {required bool isUrdu}) {
+  if (!isUrdu) {
+    return value;
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case 'cash':
+    case 'cash_amount':
+      return 'نقد';
+    case 'credit':
+    case 'credit_amount':
+      return 'ادھار';
+    case 'amount':
+    case 'total':
+    case 'total_amount':
+      return 'رقم';
+    case 'documentdate':
+      return 'دستاویز کی تاریخ';
+    default:
+      return value;
+  }
+}
+
+String _localizedQueryName(String value, {required bool isUrdu}) {
+  if (!isUrdu) {
+    return value;
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case 'sales by payment mode':
+      return 'ادائیگی کے طریقے کے لحاظ سے فروخت';
+    case 'branch wise sale summary':
+      return 'برانچ کے لحاظ سے فروخت کا خلاصہ';
+    case 'pending bag details':
+      return 'زیر التوا بیگ کی تفصیلات';
+    default:
+      return value;
   }
 }
 

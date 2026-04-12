@@ -18,10 +18,12 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <meta name="description" content="VitalPro Reporting with secure analytics, saved SQL connections, and polished PDF exports.">
+  <meta name="theme-color" content="#0B5D7A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
 
   <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="VitalPro Reporting">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
@@ -31,8 +33,63 @@
 
   <title>VitalPro Reporting</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #0d314e 0%, #184f68 55%, #26738a 100%);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .app-loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+    }
+
+    .app-loader__card {
+      padding: 24px 28px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+      text-align: center;
+    }
+
+    .app-loader__title {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .app-loader__text {
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.88;
+    }
+  </style>
 </head>
 <body>
+  <div class="app-loader" id="app-loader">
+    <div class="app-loader__card">
+      <p class="app-loader__title">VitalPro Reporting</p>
+      <p class="app-loader__text">Loading web workspace...</p>
+    </div>
+  </div>
   <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('app-loader');
+      if (loader) {
+        loader.remove();
+      }
+    });
+  </script>
 </body>
 </html>

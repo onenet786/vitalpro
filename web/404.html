@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="refresh" content="0; url=./">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Redirecting...</title>
+  <script>
+    var path = window.location.pathname + window.location.search + window.location.hash;
+    sessionStorage.setItem('flutter_redirect_path', path);
+    window.location.replace('./');
+  </script>
+</head>
+<body>
+</body>
+</html>

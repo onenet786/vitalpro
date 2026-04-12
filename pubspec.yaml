@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   fl_chart: ^0.71.0
   flutter_dotenv: ^5.2.1
