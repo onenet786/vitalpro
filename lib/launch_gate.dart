@@ -460,19 +460,22 @@ class _LaunchGatePageState extends State<LaunchGatePage> {
           builder: (context, constraints) {
             return SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 540),
+                    constraints: const BoxConstraints(maxWidth: 760),
                     child: Card(
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(28),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.all(30),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 22,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,

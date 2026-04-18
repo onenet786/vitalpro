@@ -398,7 +398,7 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                     Expanded(
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 900),
+                          constraints: const BoxConstraints(maxWidth: 1240),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -420,6 +420,7 @@ class _AppIntroSplashState extends State<_AppIntroSplash> {
                                 duration: const Duration(milliseconds: 500),
                                 child: Container(
                                   key: ValueKey('${widget.locale.languageCode}-$_currentIndex'),
+                                  width: double.infinity,
                                   padding: const EdgeInsets.all(28),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.10),

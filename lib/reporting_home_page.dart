@@ -1690,7 +1690,9 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     ),
             );
             final detailsBlock = Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: isCompact
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
               children: [
                 Text(
                   _companyProfile.companyName.trim().isEmpty
@@ -1703,7 +1705,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF0A2540),
                   ),
-                  textAlign: TextAlign.center,
+                  textAlign: isCompact ? TextAlign.center : TextAlign.start,
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -1716,7 +1718,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF4F6478),
                   ),
-                  textAlign: TextAlign.center,
+                  textAlign: isCompact ? TextAlign.center : TextAlign.start,
                 ),
               ],
             );
@@ -1732,12 +1734,12 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               );
             }
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(child: identityBlock),
-                const SizedBox(height: 14),
-                Center(child: detailsBlock),
+                identityBlock,
+                const SizedBox(width: 18),
+                Expanded(child: detailsBlock),
               ],
             );
           },
@@ -2086,9 +2088,23 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }
 
   Widget _buildAdminSection() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: ListView(children: _buildAdminSectionChildren()),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth >= 1600
+            ? 0.0
+            : constraints.maxWidth >= 1200
+            ? 2.0
+            : 4.0;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            12,
+            horizontalPadding,
+            12,
+          ),
+          child: ListView(children: _buildAdminSectionChildren()),
+        );
+      },
     );
   }
 
@@ -2255,7 +2271,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 760;
@@ -2370,7 +2386,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2397,7 +2413,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Widget _buildAdminOverviewCard() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2534,7 +2550,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   }) {
     return Container(
       width: width,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
@@ -2590,7 +2606,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
 
   Widget _buildAdminActionPanel() {
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FBFD),
         borderRadius: BorderRadius.circular(24),
@@ -2688,7 +2704,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -2810,7 +2826,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2876,7 +2892,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
   Widget _buildSavedCompaniesCard() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2955,7 +2971,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3068,7 +3084,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3397,7 +3413,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3416,7 +3432,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ..._users.map(
                 (user) => Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(18),
@@ -3498,7 +3514,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3520,7 +3536,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ..._servers.map(
                 (server) => Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(18),
@@ -3582,7 +3598,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3697,7 +3713,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -3719,7 +3735,7 @@ class _ReportingHomePageState extends State<ReportingHomePage> {
               ..._queries.map(
                 (query) => Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(18),
